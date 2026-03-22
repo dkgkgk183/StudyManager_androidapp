@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../viewmodels/ui_state.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../database/database.dart';
+import '../study_lock_screen.dart';
 
 class TodayTab extends ConsumerStatefulWidget {
   const TodayTab({super.key});
@@ -238,26 +239,23 @@ class _TodayTabState extends ConsumerState<TodayTab> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showStartSessionDialog(context, ref),
+        onPressed: () => _showStartSessionDialog(context, ref, selectedDate),
         icon: const Icon(Icons.play_arrow),
         label: const Text('공부 시작'),
       ),
     );
   }
 
-  // ── 계획 추가 다이얼로그 ──────────────────────────────
+  // ── 계획 추가 ─────────────────────────────────────────
   Future<void> _showAddPlanDialog(
       BuildContext context, WidgetRef ref, DateTime selectedDate) async {
     final categoryList = await ref.read(categoryViewModelProvider.future);
-
-    // 과목이 하나라도 있는 카테고리만 필터
     final validCategories = categoryList
         .where((c) => (c['subjects'] as List<Subject>).isNotEmpty)
         .toList();
 
     if (!context.mounted) return;
 
-    // 카테고리/과목이 없으면 안내
     if (validCategories.isEmpty) {
       showDialog(
         context: context,
@@ -265,17 +263,13 @@ class _TodayTabState extends ConsumerState<TodayTab> {
           title: const Text('과목이 없어요'),
           content: const Text('설정 탭에서 카테고리와 과목을 먼저 추가해주세요.'),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('확인'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('확인')),
           ],
         ),
       );
       return;
     }
 
-    // 다이얼로그 표시
     await showDialog(
       context: context,
       builder: (context) => _AddPlanDialog(
@@ -298,54 +292,75 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     );
   }
 
-  void _showStartSessionDialog(BuildContext context, WidgetRef ref) {
-    final subjectsAsync = ref.read(subjectViewModelProvider);
-    subjectsAsync.whenData((subjects) {
-      if (subjects.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('먼저 설정에서 과목을 추가해주세요')),
-        );
-        return;
-      }
-      String selectedSubjectId = subjects.first.id;
-      final selectedDate = ref.read(selectedDateProvider);
+  // ── 공부 시작 ─────────────────────────────────────────
+  Future<void> _showStartSessionDialog(
+      BuildContext context, WidgetRef ref, DateTime selectedDate) async {
+    final subjects = await ref.read(subjectViewModelProvider.future);
 
-      showDialog(
-        context: context,
-        builder: (context) => StatefulBuilder(
-          builder: (context, setState) => AlertDialog(
-            title: const Text('공부 시작'),
-            content: DropdownButtonFormField<String>(
-              value: selectedSubjectId,
-              decoration: const InputDecoration(labelText: '과목', isDense: true),
-              items: subjects
-                  .map((s) => DropdownMenuItem(value: s.id, child: Text(s.name)))
-                  .toList(),
-              onChanged: (v) => setState(() => selectedSubjectId = v!),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('취소')),
-              ElevatedButton(
-                onPressed: () async {
-                  final id = await ref
-                      .read(studySessionViewModelProvider(selectedDate).notifier)
-                      .startSession(subjectId: selectedSubjectId);
-                  ref.read(activeSessionIdProvider.notifier).setSession(id);
-                  if (context.mounted) Navigator.pop(context);
-                },
-                child: const Text('시작'),
-              ),
-            ],
-          ),
-        ),
+    if (!context.mounted) return;
+
+    if (subjects.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('먼저 설정에서 과목을 추가해주세요')),
       );
-    });
+      return;
+    }
+
+    String selectedSubjectId = subjects.first.id;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('공부 시작'),
+          content: DropdownButtonFormField<String>(
+            value: selectedSubjectId,
+            decoration: const InputDecoration(labelText: '과목', isDense: true),
+            items: subjects
+                .map((s) => DropdownMenuItem(value: s.id, child: Text(s.name)))
+                .toList(),
+            onChanged: (v) => setState(() => selectedSubjectId = v!),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('시작'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    // 세션 시작
+    final id = await ref
+        .read(studySessionViewModelProvider(selectedDate).notifier)
+        .startSession(subjectId: selectedSubjectId);
+    ref.read(activeSessionIdProvider.notifier).setSession(id);
+
+    final subject = subjects.firstWhere((s) => s.id == selectedSubjectId);
+
+    if (!context.mounted) return;
+
+    // 잠금 화면으로 이동
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StudyLockScreen(
+          sessionId: id,
+          subject: subject,
+        ),
+        fullscreenDialog: true,
+      ),
+    );
   }
 }
 
-// ── 계획 추가 다이얼로그 위젯 ─────────────────────────────
+// ── 계획 추가 다이얼로그 ──────────────────────────────────
 class _AddPlanDialog extends StatefulWidget {
   final DateTime selectedDate;
   final List<Map<String, dynamic>> validCategories;
@@ -399,15 +414,9 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
     final picked = await showTimePicker(
       context: context,
       initialTime: _selectedTime ?? now,
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
-        child: child!,
-      ),
     );
-
     if (picked == null) return;
 
-    // 오늘 날짜인 경우 현재 시간 이전은 불가
     if (isToday) {
       final nowMinutes = now.hour * 60 + now.minute;
       final pickedMinutes = picked.hour * 60 + picked.minute;
@@ -420,7 +429,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
         return;
       }
     }
-
     setState(() => _selectedTime = picked);
   }
 
@@ -433,7 +441,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 카테고리 선택
             const Text('카테고리', style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
             DropdownButtonFormField<Map<String, dynamic>>(
@@ -451,10 +458,7 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
                 });
               },
             ),
-
             const SizedBox(height: 12),
-
-            // 과목 선택
             const Text('과목', style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
             DropdownButtonFormField<Subject>(
@@ -464,29 +468,21 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
                 final color = _colorFromHex(s.colorHex);
                 return DropdownMenuItem(
                   value: s,
-                  child: Row(
-                    children: [
-                      CircleAvatar(backgroundColor: color, radius: 6),
-                      const SizedBox(width: 8),
-                      Text(s.name),
-                    ],
-                  ),
+                  child: Row(children: [
+                    CircleAvatar(backgroundColor: color, radius: 6),
+                    const SizedBox(width: 8),
+                    Text(s.name),
+                  ]),
                 );
               }).toList(),
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() => _selectedSubject = v);
-              },
+              onChanged: (v) { if (v != null) setState(() => _selectedSubject = v); },
             ),
-
             const SizedBox(height: 12),
-
-            // 시간 선택
             const Text('시작 시간', style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
             InkWell(
               onTap: _pickTime,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(4),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 decoration: BoxDecoration(
@@ -505,10 +501,7 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
                           ? _selectedTime!.format(context)
                           : '시간 선택 (선택 사항)',
                       style: TextStyle(
-                        color: _selectedTime != null
-                            ? Theme.of(context).colorScheme.onSurface
-                            : Colors.grey,
-                      ),
+                          color: _selectedTime != null ? null : Colors.grey),
                     ),
                     const Spacer(),
                     if (_selectedTime != null)
@@ -520,49 +513,33 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
                 ),
               ),
             ),
-
             const SizedBox(height: 12),
-
-            // 목표 시간
             const Text('목표 공부 시간', style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
             TextField(
               controller: _goalCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(),
-                suffixText: '분',
-              ),
+                  isDense: true, border: OutlineInputBorder(), suffixText: '분'),
             ),
-
             const SizedBox(height: 12),
-
-            // 메모
             const Text('메모', style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
             TextField(
               controller: _memoCtrl,
               decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(),
-                hintText: '선택 사항',
-              ),
+                  isDense: true, border: OutlineInputBorder(), hintText: '선택 사항'),
             ),
           ],
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('취소'),
-        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
         ElevatedButton(
           onPressed: _isLoading
               ? null
               : () async {
             setState(() => _isLoading = true);
-            // 시간 반영: 시간 선택 시 해당 시간, 아니면 자정(00:00)
             final targetDate = _selectedTime != null
                 ? DateTime(
               widget.selectedDate.year,
@@ -572,7 +549,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
               _selectedTime!.minute,
             )
                 : widget.selectedDate;
-
             await widget.onAdd(
               subjectId: _selectedSubject.id,
               targetDate: targetDate,
@@ -582,11 +558,8 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
             if (mounted) Navigator.pop(context);
           },
           child: _isLoading
-              ? const SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
+              ? const SizedBox(width: 16, height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('추가'),
         ),
       ],
@@ -646,12 +619,10 @@ class _PlanCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final color = _colorFromHex(subject.colorHex);
-    // 시간이 설정된 경우 표시
     final hasTime = plan.targetDate.hour != 0 || plan.targetDate.minute != 0;
     final timeStr = hasTime
         ? ' · ${TimeOfDay(hour: plan.targetDate.hour, minute: plan.targetDate.minute).format(context)}'
         : '';
-
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
@@ -659,10 +630,8 @@ class _PlanCard extends ConsumerWidget {
           backgroundColor: color.withOpacity(0.2),
           child: Icon(Icons.book, color: color, size: 20),
         ),
-        title: Text(subject.name,
-            style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(
-            '목표: ${plan.goalMinutes}분$timeStr${plan.memo.isNotEmpty ? ' · ${plan.memo}' : ''}'),
+        title: Text(subject.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text('목표: ${plan.goalMinutes}분$timeStr${plan.memo.isNotEmpty ? ' · ${plan.memo}' : ''}'),
         trailing: Checkbox(
           value: plan.isCompleted,
           onChanged: (v) => ref
@@ -686,7 +655,6 @@ class _SessionCard extends ConsumerWidget {
     final minutes = session.durationSeconds ~/ 60;
     final seconds = session.durationSeconds % 60;
     final timeStr = session.endTime == null ? '진행 중...' : '$minutes분 ${seconds}초';
-
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
@@ -694,8 +662,7 @@ class _SessionCard extends ConsumerWidget {
           backgroundColor: color.withOpacity(0.2),
           child: Icon(Icons.timer, color: color, size: 20),
         ),
-        title: Text(subject.name,
-            style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(subject.name, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text('$timeStr · 폰 꺼냄 ${session.trayOpenCount}회'),
         trailing: session.endTime == null
             ? const Icon(Icons.circle, color: Colors.green, size: 12)
