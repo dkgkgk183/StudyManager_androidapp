@@ -183,6 +183,14 @@ class AppDatabase extends _$AppDatabase {
   Future<int> deleteSession(String id) =>
       (delete(studySessions)..where((t) => t.id.equals(id))).go();
 
+  // 특정 과목의 세션 전체 삭제
+  Future<int> deleteSessionsBySubject(String subjectId) =>
+      (delete(studySessions)..where((t) => t.subjectId.equals(subjectId))).go();
+
+// 특정 과목의 계획 전체 삭제
+  Future<int> deletePlansBySubject(String subjectId) =>
+      (delete(studyPlans)..where((t) => t.subjectId.equals(subjectId))).go();
+
   // ── PomodoroSettings ──────────────────────────────────
   Future<PomodoroSetting?> getSettings() =>
       (select(pomodoroSettings)..limit(1)).getSingleOrNull();

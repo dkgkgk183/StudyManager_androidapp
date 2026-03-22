@@ -32,14 +32,18 @@ class CategoryViewModel extends _$CategoryViewModel {
   }
 
   Future<void> deleteCategory(String categoryId) async {
-    // 카테고리 삭제 시 소속 과목들의 categoryId를 null로 초기화
+    // 카테고리 소속 과목들의 세션/계획 먼저 삭제
     final subs = await database.getSubjectsByCategory(categoryId);
     for (final sub in subs) {
-      await database.updateSubject(sub.copyWith(categoryId: const drift.Value(null)));
+      await database.deleteSessionsBySubject(sub.id);
+      await database.deletePlansBySubject(sub.id);
+      await database.deleteSubject(sub.id);
     }
     await database.deleteCategory(categoryId);
     ref.invalidateSelf();
     ref.invalidate(subjectViewModelProvider);
+    ref.invalidate(studySessionViewModelProvider(DateTime.now()));
+    ref.invalidate(statsViewModelProvider);
   }
 
   Future<void> addSubjectToCategory({
@@ -82,9 +86,12 @@ class SubjectViewModel extends _$SubjectViewModel {
   }
 
   Future<void> deleteSubject(String id) async {
+    await database.deleteSessionsBySubject(id);
+    await database.deletePlansBySubject(id);
     await database.deleteSubject(id);
     ref.invalidateSelf();
     ref.invalidate(categoryViewModelProvider);
+    ref.invalidate(statsViewModelProvider);
   }
 }
 

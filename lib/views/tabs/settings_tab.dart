@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../viewmodels/study_view_model.dart';
+import '../../services/api_key_service.dart';
 import '../../database/database.dart';
 
 const List<String> _presetColors = [
@@ -88,6 +89,19 @@ class SettingsTab extends ConsumerWidget {
               );
             },
           ),
+
+          const Divider(height: 32),
+
+          // ── Gemini API 키 섹션 ────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text('Gemini API',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+          ),
+          _ApiKeyTile(),
 
           const SizedBox(height: 40),
         ],
@@ -427,5 +441,120 @@ Color _colorFromHex(String hex) {
     return Color(int.parse('FF$h', radix: 16));
   } catch (_) {
     return Colors.indigo;
+  }
+}
+
+// ── API 키 입력 타일 ──────────────────────────────────────
+class _ApiKeyTile extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_ApiKeyTile> createState() => _ApiKeyTileState();
+}
+
+class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
+  bool _obscure = true;
+
+  void _showEditDialog(String? currentKey) {
+    final ctrl = TextEditingController(text: currentKey ?? '');
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Gemini API 키 설정'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Google AI Studio에서 발급받은 API 키를 입력하세요.\n키는 기기에만 저장되며 외부로 전송되지 않아요.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                obscureText: _obscure,
+                decoration: InputDecoration(
+                  hintText: 'AIza...',
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                    onPressed: () => setState(() => _obscure = !_obscure),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
+            ),
+            if (currentKey != null)
+              TextButton(
+                onPressed: () async {
+                  await ref.read(apiKeyProvider.notifier).delete();
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('삭제', style: TextStyle(color: Colors.red)),
+              ),
+            ElevatedButton(
+              onPressed: () async {
+                final key = ctrl.text.trim();
+                if (key.isEmpty) return;
+                await ref.read(apiKeyProvider.notifier).save(key);
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text('저장'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final apiKeyAsync = ref.watch(apiKeyProvider);
+
+    return apiKeyAsync.when(
+      data: (key) {
+        final isSet = key != null && key.isNotEmpty;
+        final maskedKey = isSet
+            ? '${key.substring(0, 4)}${'*' * (key.length - 8)}${key.substring(key.length - 4)}'
+            : null;
+
+        return ListTile(
+          leading: Icon(
+            Icons.key,
+            color: isSet ? Colors.green : Colors.grey,
+          ),
+          title: const Text('API 키'),
+          subtitle: Text(
+            isSet ? maskedKey! : '미설정 — 탭하여 입력',
+            style: TextStyle(
+              color: isSet ? Colors.green : Colors.orange,
+              fontSize: 12,
+            ),
+          ),
+          trailing: Icon(
+            isSet ? Icons.check_circle : Icons.warning_amber,
+            color: isSet ? Colors.green : Colors.orange,
+            size: 20,
+          ),
+          onTap: () => _showEditDialog(key),
+        );
+      },
+      loading: () => const ListTile(
+        leading: Icon(Icons.key),
+        title: Text('API 키'),
+        subtitle: Text('불러오는 중...'),
+      ),
+      error: (e, _) => ListTile(
+        leading: const Icon(Icons.key, color: Colors.red),
+        title: const Text('API 키'),
+        subtitle: const Text('탭하여 입력'),
+        onTap: () => _showEditDialog(null),  // ← onTap 추가
+      ),
+    );
   }
 }

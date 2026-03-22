@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../../viewmodels/study_view_model.dart';
+import '../../services/api_key_service.dart';
 import '../../database/database.dart';
 
-const String _apiKey = 'AIzaSyAahAEW4snCpdjhd9ek8tzyRYV1fpYGcWk';
 const String _baseUrl =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=$_apiKey';
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=';
 
 enum AiSession { dailyPlan, preference }
 
@@ -42,10 +42,8 @@ class _AiTabState extends ConsumerState<AiTab> {
 
   bool _isLoading = false;
 
-  // ── 카테고리/과목 → 텍스트 변환 ──────────────────────────
   String _buildCategoryContext(List<Map<String, dynamic>> categoryList) {
     if (categoryList.isEmpty) return '';
-
     final buffer = StringBuffer();
     buffer.writeln('\n아래는 사용자가 등록한 카테고리와 과목 목록이야. 계획 제안 시 이 과목들을 활용해줘:');
     buffer.writeln('---');
@@ -53,8 +51,7 @@ class _AiTabState extends ConsumerState<AiTab> {
       final category = item['category'] as SubjectCategory;
       final subjects = item['subjects'] as List<Subject>;
       if (subjects.isEmpty) continue;
-      final subjectNames = subjects.map((s) => s.name).join(', ');
-      buffer.writeln('- ${category.name}: $subjectNames');
+      buffer.writeln('- ${category.name}: ${subjects.map((s) => s.name).join(', ')}');
     }
     buffer.writeln('---');
     buffer.writeln('사용자가 카테고리 이름만 말해도 해당 과목들을 포함해서 계획을 짜줘.');
@@ -69,11 +66,7 @@ class _AiTabState extends ConsumerState<AiTab> {
 답변은 너무 길지 않게 해줘.
 한국어로 대화해줘.
 ''';
-
-    // 카테고리/과목 정보 주입
     base += _buildCategoryContext(categoryList);
-
-    // 성향 정보 주입
     if (_prefHistory.isNotEmpty) {
       final prefSummary = _prefHistory
           .where((m) => m['role'] == 'user')
@@ -115,11 +108,23 @@ $prefSummary
     final text = _controller.text.trim();
     if (text.isEmpty || _isLoading) return;
 
-    // 일일 계획 세션이면 카테고리 데이터 먼저 로드
+    // API 키 확인
+    final apiKey = await ref.read(apiKeyProvider.future);
+    if (apiKey == null || apiKey.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('설정 탭에서 Gemini API 키를 먼저 입력해주세요'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
     String systemPrompt = _prefSystemPrompt;
     if (_currentSession == AiSession.dailyPlan) {
-      final categoryList =
-      await ref.read(categoryViewModelProvider.future);
+      final categoryList = await ref.read(categoryViewModelProvider.future);
       systemPrompt = _buildPlanSystemPrompt(categoryList);
     }
 
@@ -137,7 +142,7 @@ $prefSummary
 
     try {
       final response = await http.post(
-        Uri.parse(_baseUrl),
+        Uri.parse('$_baseUrl$apiKey'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'system_instruction': {
@@ -153,8 +158,7 @@ $prefSummary
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
-        final aiText =
-        data['candidates'][0]['content']['parts'][0]['text'] as String;
+        final aiText = data['candidates'][0]['content']['parts'][0]['text'] as String;
         _currentHistory.add({
           'role': 'model',
           'parts': [{'text': aiText}],
@@ -167,22 +171,14 @@ $prefSummary
         final error = jsonDecode(utf8.decode(response.bodyBytes));
         final errorMsg = error['error']?['message'] ?? '알 수 없는 오류';
         setState(() {
-          _currentMessages.add(_ChatMessage(
-            isAi: true,
-            text: '오류가 발생했어요: $errorMsg',
-            isError: true,
-          ));
+          _currentMessages.add(_ChatMessage(isAi: true, text: '오류: $errorMsg', isError: true));
           _isLoading = false;
         });
         _currentHistory.removeLast();
       }
     } catch (e) {
       setState(() {
-        _currentMessages.add(_ChatMessage(
-          isAi: true,
-          text: '네트워크 오류가 발생했어요. 인터넷 연결을 확인해주세요.',
-          isError: true,
-        ));
+        _currentMessages.add(_ChatMessage(isAi: true, text: '네트워크 오류가 발생했어요.', isError: true));
         _isLoading = false;
       });
       _currentHistory.removeLast();
@@ -210,14 +206,9 @@ $prefSummary
         title: const Text('대화 초기화'),
         content: const Text('모든 대화 기록이 삭제됩니다!\n계속하시겠어요?'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('삭제', style: TextStyle(color: Colors.red)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
+          TextButton(onPressed: () => Navigator.pop(context, true),
+              child: const Text('삭제', style: TextStyle(color: Colors.red))),
         ],
       ),
     );
@@ -229,15 +220,9 @@ $prefSummary
       _currentHistory.clear();
       _currentMessages.clear();
       if (_currentSession == AiSession.dailyPlan) {
-        _currentMessages.add(_ChatMessage(
-          isAi: true,
-          text: '새로운 대화를 시작합니다. 오늘 어떤 공부를 할 예정인가요?',
-        ));
+        _currentMessages.add(_ChatMessage(isAi: true, text: '새로운 대화를 시작합니다. 오늘 어떤 공부를 할 예정인가요?'));
       } else {
-        _currentMessages.add(_ChatMessage(
-          isAi: true,
-          text: '성향 기록을 초기화했어요. 다시 알려주세요!',
-        ));
+        _currentMessages.add(_ChatMessage(isAi: true, text: '성향 기록을 초기화했어요. 다시 알려주세요!'));
       }
     });
   }
@@ -246,8 +231,9 @@ $prefSummary
   Widget build(BuildContext context) {
     final hasPrefData = _prefHistory.isNotEmpty;
     final categoryAsync = ref.watch(categoryViewModelProvider);
-    final hasCategories =
-        categoryAsync.valueOrNull?.any((c) => (c['subjects'] as List).isNotEmpty) ?? false;
+    final hasCategories = categoryAsync.valueOrNull?.any((c) => (c['subjects'] as List).isNotEmpty) ?? false;
+    final apiKeyAsync = ref.watch(apiKeyProvider);
+    final hasApiKey = apiKeyAsync.valueOrNull?.isNotEmpty ?? false;
 
     return Scaffold(
       appBar: AppBar(
@@ -262,8 +248,7 @@ $prefSummary
                   avatar: const Icon(Icons.folder, size: 14),
                   padding: EdgeInsets.zero,
                   visualDensity: VisualDensity.compact,
-                  backgroundColor:
-                  Theme.of(context).colorScheme.secondaryContainer,
+                  backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
                 ),
               ),
             if (hasPrefData)
@@ -274,8 +259,7 @@ $prefSummary
                   avatar: const Icon(Icons.person, size: 14),
                   padding: EdgeInsets.zero,
                   visualDensity: VisualDensity.compact,
-                  backgroundColor:
-                  Theme.of(context).colorScheme.primaryContainer,
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
                 ),
               ),
           ],
@@ -304,15 +288,10 @@ $prefSummary
                       const Icon(Icons.person_outline, size: 16),
                       if (hasPrefData)
                         Positioned(
-                          right: -4,
-                          top: -4,
+                          right: -4, top: -4,
                           child: Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
+                            width: 8, height: 8,
+                            decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
                           ),
                         ),
                     ],
@@ -331,28 +310,38 @@ $prefSummary
       ),
       body: Column(
         children: [
+          // API 키 미설정 경고 배너
+          if (!hasApiKey)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: Colors.orange.shade100,
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber, color: Colors.orange, size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'API 키가 없어요. 설정 탭에서 Gemini API 키를 입력해주세요.',
+                      style: TextStyle(fontSize: 12, color: Colors.deepOrange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (_currentSession == AiSession.preference)
             Container(
               width: double.infinity,
-              padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: Theme.of(context)
-                  .colorScheme
-                  .tertiaryContainer
-                  .withOpacity(0.5),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Theme.of(context).colorScheme.tertiaryContainer.withOpacity(0.5),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline,
-                      size: 14,
-                      color: Theme.of(context).colorScheme.tertiary),
+                  Icon(Icons.info_outline, size: 14, color: Theme.of(context).colorScheme.tertiary),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       '여기서 나눈 대화는 일일 계획 세션에 자동으로 반영돼요',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.tertiary,
-                      ),
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.tertiary),
                     ),
                   ),
                 ],
@@ -364,9 +353,7 @@ $prefSummary
               padding: const EdgeInsets.all(16),
               itemCount: _currentMessages.length + (_isLoading ? 1 : 0),
               itemBuilder: (context, index) {
-                if (index == _currentMessages.length) {
-                  return const _TypingIndicator();
-                }
+                if (index == _currentMessages.length) return const _TypingIndicator();
                 return _ChatBubble(message: _currentMessages[index]);
               },
             ),
@@ -413,21 +400,14 @@ class _ChatBubble extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
-        mainAxisAlignment:
-        isAi ? MainAxisAlignment.start : MainAxisAlignment.end,
+        mainAxisAlignment: isAi ? MainAxisAlignment.start : MainAxisAlignment.end,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (isAi) ...[
             CircleAvatar(
               radius: 16,
-              backgroundColor: message.isError
-                  ? Colors.red
-                  : Theme.of(context).colorScheme.primary,
-              child: Icon(
-                message.isError ? Icons.error : Icons.smart_toy,
-                size: 18,
-                color: Colors.white,
-              ),
+              backgroundColor: message.isError ? Colors.red : Theme.of(context).colorScheme.primary,
+              child: Icon(message.isError ? Icons.error : Icons.smart_toy, size: 18, color: Colors.white),
             ),
             const SizedBox(width: 8),
           ],
@@ -443,10 +423,7 @@ class _ChatBubble extends StatelessWidget {
                   bottomRight: const Radius.circular(16),
                 ),
               ),
-              child: Text(
-                message.text,
-                style: TextStyle(color: textColor, height: 1.5),
-              ),
+              child: Text(message.text, style: TextStyle(color: textColor, height: 1.5)),
             ),
           ),
         ],
@@ -461,18 +438,15 @@ class _TypingIndicator extends StatefulWidget {
   State<_TypingIndicator> createState() => _TypingIndicatorState();
 }
 
-class _TypingIndicatorState extends State<_TypingIndicator>
-    with SingleTickerProviderStateMixin {
+class _TypingIndicatorState extends State<_TypingIndicator> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    )..repeat(reverse: true);
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 800))
+      ..repeat(reverse: true);
     _animation = Tween<double>(begin: 0.4, end: 1.0).animate(_controller);
   }
 
@@ -500,10 +474,7 @@ class _TypingIndicatorState extends State<_TypingIndicator>
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: FadeTransition(
-              opacity: _animation,
-              child: const Text('생각 중...'),
-            ),
+            child: FadeTransition(opacity: _animation, child: const Text('생각 중...')),
           ),
         ],
       ),
@@ -517,12 +488,7 @@ class _InputBar extends StatelessWidget {
   final bool isLoading;
   final String hintText;
 
-  const _InputBar({
-    required this.controller,
-    required this.onSend,
-    required this.isLoading,
-    required this.hintText,
-  });
+  const _InputBar({required this.controller, required this.onSend, required this.isLoading, required this.hintText});
 
   @override
   Widget build(BuildContext context) {
@@ -544,24 +510,16 @@ class _InputBar extends StatelessWidget {
               decoration: InputDecoration(
                 hintText: hintText,
                 isDense: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 10),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               ),
             ),
           ),
           const SizedBox(width: 8),
-          IconButton.filled(
-            onPressed: isLoading ? null : onSend,
-            icon: const Icon(Icons.send),
-          ),
+          IconButton.filled(onPressed: isLoading ? null : onSend, icon: const Icon(Icons.send)),
           const SizedBox(width: 4),
           IconButton.filledTonal(
-            onPressed: () {
-              // TODO: 음성인식 구현 예정
-            },
+            onPressed: () {},
             icon: const Icon(Icons.mic),
             style: IconButton.styleFrom(foregroundColor: Colors.red),
           ),
