@@ -9,30 +9,39 @@ class ApiKeyService {
     return prefs.getString(_kApiKey);
   }
 
-  static Future<void> saveKey(String key) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kApiKey, key);
+  static Future<bool> saveKey(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await prefs.setString(_kApiKey, key);
+    } catch (e) {
+      return false;
+    }
   }
 
-  static Future<void> deleteKey() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kApiKey);
+  static Future<bool> deleteKey() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await prefs.remove(_kApiKey);
+    } catch (e) {
+      return false;
+    }
   }
 }
 
-// Riverpod provider - API 키 상태 관리
 class ApiKeyNotifier extends AsyncNotifier<String?> {
   @override
   Future<String?> build() => ApiKeyService.getKey();
 
-  Future<void> save(String key) async {
-    await ApiKeyService.saveKey(key);
-    state = AsyncValue.data(key);
+  Future<bool> save(String key) async {
+    final success = await ApiKeyService.saveKey(key);
+    if (success) state = AsyncValue.data(key);
+    return success;
   }
 
-  Future<void> delete() async {
-    await ApiKeyService.deleteKey();
-    state = const AsyncValue.data(null);
+  Future<bool> delete() async {
+    final success = await ApiKeyService.deleteKey();
+    if (success) state = const AsyncValue.data(null);
+    return success;
   }
 }
 

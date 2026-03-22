@@ -6,7 +6,7 @@ part of 'study_view_model.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$categoryViewModelHash() => r'3e7bfe0d93f1e349d585ee2c4669b8553e98f685';
+String _$categoryViewModelHash() => r'4ecb625219e55aa3fe89175cdbf5ce1ac158f79a';
 
 /// See also [CategoryViewModel].
 @ProviderFor(CategoryViewModel)
@@ -26,7 +26,7 @@ final categoryViewModelProvider =
 
 typedef _$CategoryViewModel =
     AutoDisposeAsyncNotifier<List<Map<String, dynamic>>>;
-String _$subjectViewModelHash() => r'68922c6fe604b9cfdc624f52f7bb0a7a3d028698';
+String _$subjectViewModelHash() => r'b4c5b55b97cf3a2d44b6a1eff5378d78f248598a';
 
 /// See also [SubjectViewModel].
 @ProviderFor(SubjectViewModel)

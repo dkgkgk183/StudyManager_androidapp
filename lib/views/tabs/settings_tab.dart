@@ -445,20 +445,21 @@ Color _colorFromHex(String hex) {
 }
 
 // ── API 키 입력 타일 ──────────────────────────────────────
+// settings_tab.dart 맨 아래에 붙여넣기
 class _ApiKeyTile extends ConsumerStatefulWidget {
   @override
   ConsumerState<_ApiKeyTile> createState() => _ApiKeyTileState();
 }
 
 class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
-  bool _obscure = true;
-
   void _showEditDialog(String? currentKey) {
     final ctrl = TextEditingController(text: currentKey ?? '');
+    bool obscure = true;
+
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+        builder: (context, setDialogState) => AlertDialog(
           title: const Text('Gemini API 키 설정'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -471,14 +472,15 @@ class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
               const SizedBox(height: 12),
               TextField(
                 controller: ctrl,
-                obscureText: _obscure,
+                obscureText: obscure,
+                autofocus: true,
                 decoration: InputDecoration(
-                  hintText: 'AIza...',
+                  hintText: '...',
                   isDense: true,
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
-                    icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
-                    onPressed: () => setState(() => _obscure = !_obscure),
+                    icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
+                    onPressed: () => setDialogState(() => obscure = !obscure),
                   ),
                 ),
               ),
@@ -489,20 +491,35 @@ class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
               onPressed: () => Navigator.pop(context),
               child: const Text('취소'),
             ),
-            if (currentKey != null)
+            if (currentKey != null && currentKey.isNotEmpty)
               TextButton(
                 onPressed: () async {
-                  await ref.read(apiKeyProvider.notifier).delete();
-                  if (context.mounted) Navigator.pop(context);
+                  final success = await ref.read(apiKeyProvider.notifier).delete();
+                  if (!context.mounted) return;
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(success ? 'API 키가 삭제됐어요' : '삭제에 실패했어요'),
+                    backgroundColor: success ? Colors.red : Colors.orange,
+                  ));
                 },
                 child: const Text('삭제', style: TextStyle(color: Colors.red)),
               ),
             ElevatedButton(
               onPressed: () async {
                 final key = ctrl.text.trim();
-                if (key.isEmpty) return;
-                await ref.read(apiKeyProvider.notifier).save(key);
-                if (context.mounted) Navigator.pop(context);
+                if (key.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('API 키를 입력해주세요')),
+                  );
+                  return;
+                }
+                final success = await ref.read(apiKeyProvider.notifier).save(key);
+                if (!context.mounted) return;
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(success ? 'API 키가 저장됐어요 ✅' : '저장에 실패했어요. 다시 시도해주세요'),
+                  backgroundColor: success ? Colors.green : Colors.red,
+                ));
               },
               child: const Text('저장'),
             ),
@@ -519,15 +536,12 @@ class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
     return apiKeyAsync.when(
       data: (key) {
         final isSet = key != null && key.isNotEmpty;
-        final maskedKey = isSet
+        final maskedKey = isSet && key.length >= 8
             ? '${key.substring(0, 4)}${'*' * (key.length - 8)}${key.substring(key.length - 4)}'
-            : null;
+            : key;
 
         return ListTile(
-          leading: Icon(
-            Icons.key,
-            color: isSet ? Colors.green : Colors.grey,
-          ),
+          leading: Icon(Icons.key, color: isSet ? Colors.green : Colors.grey),
           title: const Text('API 키'),
           subtitle: Text(
             isSet ? maskedKey! : '미설정 — 탭하여 입력',
@@ -553,7 +567,7 @@ class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
         leading: const Icon(Icons.key, color: Colors.red),
         title: const Text('API 키'),
         subtitle: const Text('탭하여 입력'),
-        onTap: () => _showEditDialog(null),  // ← onTap 추가
+        onTap: () => _showEditDialog(null),
       ),
     );
   }
