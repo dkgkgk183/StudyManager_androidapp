@@ -1,17 +1,107 @@
-# study_manager
+# 📚 탁상 AI 스터디 매니저
 
-A new Flutter project.
+> 스마트폰을 물리적으로 거치하여 공부 집중력을 높이고, AI가 공부 계획과 패턴을 분석해주는 데스크탑 학습 보조 디바이스 + 앱
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+## 📱 앱 주요 기능
 
-A few resources to get you started if this is your first Flutter project:
+### 🤖 AI 플래너 탭
+- **일일 계획 세션**: Gemini AI와 대화하며 오늘의 공부 계획 생성
+    - 등록된 카테고리/과목을 자동 참조하여 계획에 반영
+    - 예) "오늘 학교공부 위주로 2시간 계획 짜줘" → 해당 카테고리 과목 포함 계획 자동 생성
+- **사용자 성향 세션**: 개인 공부 습관, 취약점, 선호 시간대 등을 AI에게 기록
+    - 기록된 성향은 일일 계획 세션에 자동 반영
+    - 예) "나는 밤에 집중이 잘 돼" → 이후 계획 제안 시 저녁 시간대 우선 배치
+- 대화 히스토리 유지 (맥락 기억)
+- 과목 연동 / 성향 반영 상태 칩으로 표시
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+### 📅 오늘 탭
+- **주간 날짜 바**: 월~일 7일을 한 화면에 표시, 이전/다음 주 버튼으로 무한 이동
+    - 오늘 날짜 점(●) 표시, 토요일(파랑)/일요일(빨강) 색상 구분
+- **오늘의 계획**:
+    - 카테고리 → 과목 순서로 선택
+    - 원형 시계 피커로 시작 시간 설정 (오늘 날짜 기준 현재 이전 시간 차단)
+    - 목표 공부 시간(분) 및 메모 입력
+    - 완료 체크박스로 달성 여부 관리
+- **오늘의 공부 기록**: 실제 공부 세션 기록 (진행 중 / 완료 상태)
+- 과목 미등록 시 설정 탭으로 안내
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### 📊 통계 탭
+- 과목별 총 공부 시간 집계
+- 진행 바(Progress Bar)로 비율 시각화
+- 전체 누적 공부 시간 표시
+
+### ⚙️ 설정 탭
+- **카테고리 관리**: 학교공부, 자격증 등 용도별 카테고리 생성
+    - 카테고리 내 과목 추가/삭제
+    - 과목별 색상 지정 (8가지 프리셋)
+    - 카테고리/과목 삭제 시 관련 세션·계획 데이터 함께 삭제
+- **Gemini API 키 설정**: 기기 로컬에 안전하게 저장, 마스킹 표시
+- **라즈베리파이 연동**: IP 주소 설정 (구현 예정)
+
+---
+
+## 🔧 하드웨어 연동 (라즈베리파이)
+
+| 기능 | 설명 |
+|------|------|
+| CD 트레이 방식 거치대 | 버튼을 누르면 받침대가 나오고, 폰을 올리면 자동으로 들어가며 잠금 |
+| 무게 센서 (HX711) | 폰 올림/내림 감지 |
+| 트레이 개방 횟수 측정 | 공부 중 폰을 꺼낸 횟수 기록 |
+| 디스플레이 출력 | 공부 계획, 타이머, AI 실시간 멘트 표시 |
+| 물리 버튼 | 뽀모도로 시작/정지/스킵 |
+| 카메라 (OpenCV) | 자리 이탈, 졸음 감지 |
+| 환경 센서 | 온습도/조도 측정 및 AI 분석 반영 |
+
+---
+
+## 🛠 기술 스택
+
+| 구분 | 기술 |
+|------|------|
+| 앱 프레임워크 | Flutter (Dart) |
+| 상태 관리 | Riverpod |
+| 로컬 DB | Drift (SQLite) |
+| AI | Gemini API (gemini-3.1-flash-lite-preview) |
+| 키 저장 | SharedPreferences |
+| 라즈베리파이 | Python (FastAPI, Pygame, RPi.GPIO, SQLite) |
+| 통신 | Wi-Fi (HTTP / WebSocket) |
+
+---
+
+## 🚀 시작하기
+
+### 앱 실행
+```bash
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs
+flutter run
+```
+
+### API 키 설정
+1. [Google AI Studio](https://aistudio.google.com) 에서 Gemini API 키 발급
+2. 앱 실행 → 설정 탭 → API 키 탭하여 입력
+
+---
+
+## 📁 프로젝트 구조
+
+```
+lib/
+├── main.dart
+├── database/
+│   └── database.dart          # Drift DB 스키마 (카테고리/과목/계획/세션)
+├── services/
+│   └── api_key_service.dart   # Gemini API 키 로컬 저장
+├── viewmodels/
+│   ├── ui_state.dart          # 전역 UI 상태
+│   └── study_view_model.dart  # 데이터 CRUD
+└── views/
+    ├── main_screen.dart
+    └── tabs/
+        ├── ai_tab.dart        # AI 플래너
+        ├── today_tab.dart     # 오늘의 계획
+        ├── stats_tab.dart     # 통계
+        └── settings_tab.dart  # 설정
+```
