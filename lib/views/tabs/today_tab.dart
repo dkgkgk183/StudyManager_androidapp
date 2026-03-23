@@ -47,7 +47,8 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     final selectedDate = ref.watch(selectedDateProvider);
     final plansAsync = ref.watch(studyPlanViewModelProvider(selectedDate));
     final sessionsAsync = ref.watch(studySessionViewModelProvider(selectedDate));
-    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    final today = DateTime(
+        DateTime.now().year, DateTime.now().month, DateTime.now().day);
     final days = _weekDays;
 
     final firstMonth = DateFormat('yyyy년 M월', 'ko').format(days.first);
@@ -114,7 +115,8 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                       } else if (isSun) {
                         dayNumColor = Colors.red;
                       } else {
-                        dayNumColor = Theme.of(context).colorScheme.onSurface;
+                        dayNumColor =
+                            Theme.of(context).colorScheme.onSurface;
                       }
 
                       return Expanded(
@@ -127,7 +129,9 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                               color: isSelected
                                   ? Theme.of(context).colorScheme.primary
                                   : isToday
-                                  ? Theme.of(context).colorScheme.primaryContainer
+                                  ? Theme.of(context)
+                                  .colorScheme
+                                  .primaryContainer
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(10),
                             ),
@@ -144,7 +148,9 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                                         ? Colors.blue
                                         : isSun
                                         ? Colors.red
-                                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                                        : Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
                                   ),
                                 ),
                                 const SizedBox(height: 2),
@@ -167,7 +173,9 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                                         shape: BoxShape.circle,
                                         color: isSelected
                                             ? Colors.white
-                                            : Theme.of(context).colorScheme.primary,
+                                            : Theme.of(context)
+                                            .colorScheme
+                                            .primary,
                                       ),
                                     ),
                                   )
@@ -193,7 +201,8 @@ class _TodayTabState extends ConsumerState<TodayTab> {
               children: [
                 _SectionHeader(
                   title: '오늘의 계획',
-                  onAdd: () => _showAddPlanDialog(context, ref, selectedDate),
+                  onAdd: () =>
+                      _showAddPlanDialog(context, ref, selectedDate),
                 ),
                 const SizedBox(height: 8),
                 plansAsync.when(
@@ -206,11 +215,15 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                       children: plans.map((item) {
                         final plan = item['plan'] as StudyPlan;
                         final subject = item['subject'] as Subject;
-                        return _PlanCard(plan: plan, subject: subject, date: selectedDate);
+                        return _PlanCard(
+                            plan: plan,
+                            subject: subject,
+                            date: selectedDate);
                       }).toList(),
                     );
                   },
-                  loading: () => const Center(child: CircularProgressIndicator()),
+                  loading: () =>
+                  const Center(child: CircularProgressIndicator()),
                   error: (e, s) => Text('오류: $e'),
                 ),
                 const SizedBox(height: 24),
@@ -225,11 +238,15 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                       children: sessions.map((item) {
                         final session = item['session'] as StudySession;
                         final subject = item['subject'] as Subject;
-                        return _SessionCard(session: session, subject: subject, date: selectedDate);
+                        return _SessionCard(
+                            session: session,
+                            subject: subject,
+                            date: selectedDate);
                       }).toList(),
                     );
                   },
-                  loading: () => const Center(child: CircularProgressIndicator()),
+                  loading: () =>
+                  const Center(child: CircularProgressIndicator()),
                   error: (e, s) => Text('오류: $e'),
                 ),
                 const SizedBox(height: 80),
@@ -239,7 +256,8 @@ class _TodayTabState extends ConsumerState<TodayTab> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showStartSessionDialog(context, ref, selectedDate),
+        onPressed: () =>
+            _showStartSessionDialog(context, ref, selectedDate),
         icon: const Icon(Icons.play_arrow),
         label: const Text('공부 시작'),
       ),
@@ -263,7 +281,9 @@ class _TodayTabState extends ConsumerState<TodayTab> {
           title: const Text('과목이 없어요'),
           content: const Text('설정 탭에서 카테고리와 과목을 먼저 추가해주세요.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('확인')),
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('확인')),
           ],
         ),
       );
@@ -281,7 +301,9 @@ class _TodayTabState extends ConsumerState<TodayTab> {
           required int goalMinutes,
           required String memo,
         }) async {
-          await ref.read(studyPlanViewModelProvider(selectedDate).notifier).addPlan(
+          await ref
+              .read(studyPlanViewModelProvider(selectedDate).notifier)
+              .addPlan(
             subjectId: subjectId,
             targetDate: targetDate,
             goalMinutes: goalMinutes,
@@ -296,7 +318,6 @@ class _TodayTabState extends ConsumerState<TodayTab> {
   Future<void> _showStartSessionDialog(
       BuildContext context, WidgetRef ref, DateTime selectedDate) async {
     final subjects = await ref.read(subjectViewModelProvider.future);
-
     if (!context.mounted) return;
 
     if (subjects.isEmpty) {
@@ -315,21 +336,21 @@ class _TodayTabState extends ConsumerState<TodayTab> {
           title: const Text('공부 시작'),
           content: DropdownButtonFormField<String>(
             value: selectedSubjectId,
-            decoration: const InputDecoration(labelText: '과목', isDense: true),
+            decoration:
+            const InputDecoration(labelText: '과목', isDense: true),
             items: subjects
-                .map((s) => DropdownMenuItem(value: s.id, child: Text(s.name)))
+                .map((s) =>
+                DropdownMenuItem(value: s.id, child: Text(s.name)))
                 .toList(),
             onChanged: (v) => setState(() => selectedSubjectId = v!),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('취소'),
-            ),
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('취소')),
             ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('시작'),
-            ),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('시작')),
           ],
         ),
       ),
@@ -337,23 +358,20 @@ class _TodayTabState extends ConsumerState<TodayTab> {
 
     if (confirmed != true || !context.mounted) return;
 
-    // 세션 시작
     final id = await ref
         .read(studySessionViewModelProvider(selectedDate).notifier)
         .startSession(subjectId: selectedSubjectId);
     ref.read(activeSessionIdProvider.notifier).setSession(id);
 
-    final subject = subjects.firstWhere((s) => s.id == selectedSubjectId);
+    final subject =
+    subjects.firstWhere((s) => s.id == selectedSubjectId);
 
     if (!context.mounted) return;
 
-    // 잠금 화면으로 이동
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => StudyLockScreen(
-          sessionId: id,
-          subject: subject,
-        ),
+        builder: (_) =>
+            StudyLockScreen(sessionId: id, subject: subject),
         fullscreenDialog: true,
       ),
     );
@@ -393,7 +411,10 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
   void initState() {
     super.initState();
     _selectedCategory = widget.validCategories.first;
-    _selectedSubject = (_selectedCategory['subjects'] as List<Subject>).first;
+    _selectedSubject =
+        (_selectedCategory['subjects'] as List<Subject>).first;
+    // 목표 시간 변경 시 종료 시각 자동 업데이트
+    _goalCtrl.addListener(() => setState(() {}));
   }
 
   @override
@@ -406,10 +427,24 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
   List<Subject> get _currentSubjects =>
       _selectedCategory['subjects'] as List<Subject>;
 
+  // 종료 시각 계산
+  String? get _endTimeString {
+    if (_selectedTime == null) return null;
+    final goalMinutes = int.tryParse(_goalCtrl.text) ?? 0;
+    if (goalMinutes <= 0) return null;
+    final totalMinutes =
+        _selectedTime!.hour * 60 + _selectedTime!.minute + goalMinutes;
+    final endHour = (totalMinutes ~/ 60) % 24;
+    final endMinute = totalMinutes % 60;
+    final endTime = TimeOfDay(hour: endHour, minute: endMinute);
+    return endTime.format(context);
+  }
+
   Future<void> _pickTime() async {
     final now = TimeOfDay.now();
     final isToday = widget.selectedDate ==
-        DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+        DateTime(DateTime.now().year, DateTime.now().month,
+            DateTime.now().day);
 
     final picked = await showTimePicker(
       context: context,
@@ -434,6 +469,8 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final endTime = _endTimeString;
+
     return AlertDialog(
       title: const Text('계획 추가'),
       content: SingleChildScrollView(
@@ -441,11 +478,14 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('카테고리', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            // 카테고리
+            const Text('카테고리',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
             DropdownButtonFormField<Map<String, dynamic>>(
               value: _selectedCategory,
-              decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  isDense: true, border: OutlineInputBorder()),
               items: widget.validCategories.map((c) {
                 final cat = c['category'] as SubjectCategory;
                 return DropdownMenuItem(value: c, child: Text(cat.name));
@@ -454,16 +494,22 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
                 if (v == null) return;
                 setState(() {
                   _selectedCategory = v;
-                  _selectedSubject = (_selectedCategory['subjects'] as List<Subject>).first;
+                  _selectedSubject =
+                      (_selectedCategory['subjects'] as List<Subject>)
+                          .first;
                 });
               },
             ),
             const SizedBox(height: 12),
-            const Text('과목', style: TextStyle(fontSize: 12, color: Colors.grey)),
+
+            // 과목
+            const Text('과목',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
             DropdownButtonFormField<Subject>(
               value: _selectedSubject,
-              decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  isDense: true, border: OutlineInputBorder()),
               items: _currentSubjects.map((s) {
                 final color = _colorFromHex(s.colorHex);
                 return DropdownMenuItem(
@@ -475,18 +521,37 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
                   ]),
                 );
               }).toList(),
-              onChanged: (v) { if (v != null) setState(() => _selectedSubject = v); },
+              onChanged: (v) {
+                if (v != null) setState(() => _selectedSubject = v);
+              },
             ),
             const SizedBox(height: 12),
-            const Text('시작 시간', style: TextStyle(fontSize: 12, color: Colors.grey)),
+
+            // 시작 시간 (필수)
+            Row(
+              children: [
+                const Text('시작 시간',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(width: 4),
+                Text('*',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.error)),
+              ],
+            ),
             const SizedBox(height: 4),
             InkWell(
               onTap: _pickTime,
               borderRadius: BorderRadius.circular(4),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 12),
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade400),
+                  border: Border.all(
+                    color: _selectedTime != null
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.grey.shade400,
+                  ),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
@@ -499,56 +564,105 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
                     Text(
                       _selectedTime != null
                           ? _selectedTime!.format(context)
-                          : '시간 선택 (선택 사항)',
+                          : '시작 시간을 선택해주세요',
                       style: TextStyle(
-                          color: _selectedTime != null ? null : Colors.grey),
+                          color: _selectedTime != null
+                              ? null
+                              : Colors.grey),
                     ),
                     const Spacer(),
                     if (_selectedTime != null)
                       GestureDetector(
-                        onTap: () => setState(() => _selectedTime = null),
-                        child: const Icon(Icons.close, size: 16, color: Colors.grey),
+                        onTap: () =>
+                            setState(() => _selectedTime = null),
+                        child: const Icon(Icons.close,
+                            size: 16, color: Colors.grey),
                       ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 12),
-            const Text('목표 공부 시간', style: TextStyle(fontSize: 12, color: Colors.grey)),
+
+            // 목표 공부 시간
+            const Text('목표 공부 시간',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
             TextField(
               controller: _goalCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                  isDense: true, border: OutlineInputBorder(), suffixText: '분'),
+                isDense: true,
+                border: OutlineInputBorder(),
+                suffixText: '분',
+              ),
             ),
+
+            // 종료 시각 자동 표시
+            if (endTime != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primaryContainer
+                      .withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.flag,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      '종료 예정: $endTime',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
-            const Text('메모', style: TextStyle(fontSize: 12, color: Colors.grey)),
+
+            // 메모
+            const Text('메모',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
             TextField(
               controller: _memoCtrl,
               decoration: const InputDecoration(
-                  isDense: true, border: OutlineInputBorder(), hintText: '선택 사항'),
+                isDense: true,
+                border: OutlineInputBorder(),
+                hintText: '선택 사항',
+              ),
             ),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소')),
         ElevatedButton(
-          onPressed: _isLoading
+          // 시작 시간 미선택 시 비활성화
+          onPressed: (_isLoading || _selectedTime == null)
               ? null
               : () async {
             setState(() => _isLoading = true);
-            final targetDate = _selectedTime != null
-                ? DateTime(
+            final targetDate = DateTime(
               widget.selectedDate.year,
               widget.selectedDate.month,
               widget.selectedDate.day,
               _selectedTime!.hour,
               _selectedTime!.minute,
-            )
-                : widget.selectedDate;
+            );
             await widget.onAdd(
               subjectId: _selectedSubject.id,
               targetDate: targetDate,
@@ -558,7 +672,9 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
             if (mounted) Navigator.pop(context);
           },
           child: _isLoading
-              ? const SizedBox(width: 16, height: 16,
+              ? const SizedBox(
+              width: 16,
+              height: 16,
               child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('추가'),
         ),
@@ -610,63 +726,169 @@ class _EmptyHint extends StatelessWidget {
   }
 }
 
-class _PlanCard extends ConsumerWidget {
+// ── 계획 카드 (체크박스 없음, 길게 누르면 삭제) ─────────────
+class _PlanCard extends ConsumerStatefulWidget {
   final StudyPlan plan;
   final Subject subject;
   final DateTime date;
-  const _PlanCard({required this.plan, required this.subject, required this.date});
+  const _PlanCard(
+      {required this.plan, required this.subject, required this.date});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final color = _colorFromHex(subject.colorHex);
-    final hasTime = plan.targetDate.hour != 0 || plan.targetDate.minute != 0;
-    final timeStr = hasTime
-        ? ' · ${TimeOfDay(hour: plan.targetDate.hour, minute: plan.targetDate.minute).format(context)}'
-        : '';
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.2),
-          child: Icon(Icons.book, color: color, size: 20),
+  ConsumerState<_PlanCard> createState() => _PlanCardState();
+}
+
+class _PlanCardState extends ConsumerState<_PlanCard> {
+  bool _showDelete = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _colorFromHex(widget.subject.colorHex);
+    final goalMinutes = widget.plan.goalMinutes;
+    final hasTime = widget.plan.targetDate.hour != 0 ||
+        widget.plan.targetDate.minute != 0;
+
+    String subtitle;
+    if (hasTime) {
+      final startTime = TimeOfDay(
+          hour: widget.plan.targetDate.hour,
+          minute: widget.plan.targetDate.minute);
+      final endTotalMinutes =
+          startTime.hour * 60 + startTime.minute + goalMinutes;
+      final endTime = TimeOfDay(
+          hour: (endTotalMinutes ~/ 60) % 24,
+          minute: endTotalMinutes % 60);
+      subtitle =
+      '${startTime.format(context)} → ${endTime.format(context)} ($goalMinutes분)';
+    } else {
+      subtitle = '목표: ${goalMinutes}분';
+    }
+    if (widget.plan.memo.isNotEmpty) subtitle += ' · ${widget.plan.memo}';
+
+    return GestureDetector(
+      onLongPress: () => setState(() => _showDelete = !_showDelete),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: _showDelete
+              ? Colors.red.shade50
+              : Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _showDelete
+                ? Colors.red.shade200
+                : Colors.transparent,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        title: Text(subject.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text('목표: ${plan.goalMinutes}분$timeStr${plan.memo.isNotEmpty ? ' · ${plan.memo}' : ''}'),
-        trailing: Checkbox(
-          value: plan.isCompleted,
-          onChanged: (v) => ref
-              .read(studyPlanViewModelProvider(date).notifier)
-              .toggleComplete(plan.id, v ?? false),
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: color.withOpacity(0.2),
+            child: Icon(Icons.book, color: color, size: 20),
+          ),
+          title: Text(widget.subject.name,
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(subtitle),
+          trailing: _showDelete
+              ? IconButton(
+            icon: const Icon(Icons.delete, color: Colors.red),
+            onPressed: () async {
+              await ref
+                  .read(studyPlanViewModelProvider(widget.date)
+                  .notifier)
+                  .deletePlan(widget.plan.id);
+            },
+          )
+              : null,
         ),
       ),
     );
   }
 }
 
-class _SessionCard extends ConsumerWidget {
+// ── 세션 카드 (길게 누르면 삭제) ──────────────────────────
+class _SessionCard extends ConsumerStatefulWidget {
   final StudySession session;
   final Subject subject;
   final DateTime date;
-  const _SessionCard({required this.session, required this.subject, required this.date});
+  const _SessionCard(
+      {required this.session, required this.subject, required this.date});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final color = _colorFromHex(subject.colorHex);
-    final minutes = session.durationSeconds ~/ 60;
-    final seconds = session.durationSeconds % 60;
-    final timeStr = session.endTime == null ? '진행 중...' : '$minutes분 ${seconds}초';
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.2),
-          child: Icon(Icons.timer, color: color, size: 20),
+  ConsumerState<_SessionCard> createState() => _SessionCardState();
+}
+
+class _SessionCardState extends ConsumerState<_SessionCard> {
+  bool _showDelete = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _colorFromHex(widget.subject.colorHex);
+    final minutes = widget.session.durationSeconds ~/ 60;
+    final seconds = widget.session.durationSeconds % 60;
+    final timeStr = widget.session.endTime == null
+        ? '진행 중...'
+        : '$minutes분 ${seconds}초';
+
+    // 시작 시각 표시
+    final startStr =
+    DateFormat('HH:mm').format(widget.session.startTime);
+
+    return GestureDetector(
+      onLongPress: () => setState(() => _showDelete = !_showDelete),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: _showDelete
+              ? Colors.red.shade50
+              : Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _showDelete
+                ? Colors.red.shade200
+                : Colors.transparent,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        title: Text(subject.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text('$timeStr · 폰 꺼냄 ${session.trayOpenCount}회'),
-        trailing: session.endTime == null
-            ? const Icon(Icons.circle, color: Colors.green, size: 12)
-            : null,
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: color.withOpacity(0.2),
+            child: Icon(Icons.timer, color: color, size: 20),
+          ),
+          title: Text(widget.subject.name,
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(
+              '$startStr 시작 · $timeStr · 폰 꺼냄 ${widget.session.trayOpenCount}회'),
+          trailing: _showDelete
+              ? IconButton(
+            icon: const Icon(Icons.delete, color: Colors.red),
+            onPressed: () async {
+              await ref
+                  .read(studySessionViewModelProvider(widget.date)
+                  .notifier)
+                  .deleteSession(widget.session.id);
+              ref.invalidate(statsViewModelProvider);
+            },
+          )
+              : widget.session.endTime == null
+              ? const Icon(Icons.circle,
+              color: Colors.green, size: 12)
+              : null,
+        ),
       ),
     );
   }
