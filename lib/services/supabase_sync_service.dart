@@ -119,6 +119,20 @@ class SupabaseSyncService {
         .eq('id', id).eq('user_id', uid);
   }
 
+  Future<void> deletePlans(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final uid = await getOrCreateDeviceId();
+    await _supabase.from('study_plans').delete()
+        .inFilter('id', ids).eq('user_id', uid);
+  }
+
+  Future<void> deleteSessions(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final uid = await getOrCreateDeviceId();
+    await _supabase.from('study_sessions').delete()
+        .inFilter('id', ids).eq('user_id', uid);
+  }
+
   // ═══════════════════════════════════════════════════════════
   // PULL (Supabase → 로컬)
   // 앱 최초 실행 또는 재설치 후 데이터 복원에 사용

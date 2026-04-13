@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../services/api_key_service.dart';
 import '../../database/database.dart';
+import '../../main.dart';
 import '../../viewmodels/sync_provider.dart';
 
 const List<String> _presetColors = [
@@ -422,31 +423,67 @@ class _SubjectTile extends ConsumerWidget {
       trailing: IconButton(
         icon: const Icon(Icons.delete_outline,
             color: Colors.redAccent, size: 18),
-        onPressed: () => showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('과목 삭제'),
-            content: Text('"${subject.name}" 과목을 삭제할까요?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('취소'),
-              ),
-              TextButton(
-                onPressed: () {
-                  ref
-                      .read(subjectViewModelProvider.notifier)
-                      .deleteSubject(subject.id);
-                  Navigator.pop(context);
-                },
-                child: const Text('삭제',
-                    style: TextStyle(color: Colors.red)),
+        onPressed: () => _showDeleteSubjectDialog(context, ref),
+      ),
+    );
+  }
+
+  Future<void> _showDeleteSubjectDialog(BuildContext context, WidgetRef ref) async {
+    final planDates = await database.getPlanDatesBySubject(subject.id);
+
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) {
+        final dateText = planDates.isEmpty
+            ? '공부계획이 없습니다.'
+            : '공부계획이 잡힌 날짜:\n${planDates.map(_formatDate).join('\n')}';
+
+        return AlertDialog(
+          title: const Text('과목 삭제'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('"${subject.name}" 과목을 삭제할까요?'),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '⚠️ 관련 공부계획 ${planDates.length}건도 함께 삭제됩니다.\n\n$dateText',
+                  style: const TextStyle(fontSize: 12),
+                ),
               ),
             ],
           ),
-        ),
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () {
+                ref
+                    .read(subjectViewModelProvider.notifier)
+                    .deleteSubject(subject.id);
+                Navigator.pop(context);
+              },
+              child: const Text('삭제',
+                  style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
     );
+  }
+
+  static String _formatDate(DateTime date) {
+    return '${date.year}년 ${date.month}월 ${date.day}일';
   }
 }
 
@@ -598,7 +635,7 @@ class _SyncTile extends ConsumerWidget {
       children: [
         ListTile(
           leading: const Icon(Icons.cloud_upload_outlined),
-          title: const Text('Supabase 백업'),
+          title: const Text('데이터 백업'),
           subtitle: const Text('현재 기기의 모든 데이터를 클라우드에 업로드'),
           trailing: isLoading
               ? const SizedBox(
@@ -621,7 +658,7 @@ class _SyncTile extends ConsumerWidget {
         ),
         ListTile(
           leading: const Icon(Icons.cloud_download_outlined),
-          title: const Text('Supabase 복원'),
+          title: const Text('데이터 복원'),
           subtitle: const Text('클라우드 데이터를 현재 기기로 가져오기'),
           trailing: isLoading
               ? const SizedBox(

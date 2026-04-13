@@ -65,17 +65,33 @@ class CategoryViewModel extends _$CategoryViewModel {
 
   Future<void> deleteCategory(String categoryId) async {
     final subs = await database.getSubjectsByCategory(categoryId);
+
+    // Supabase 삭제를 위해 모든 과목의 ID 먼저 수집 (로컬 삭제 전에!)
+    final allPlans = await database.getAllPlans();
+    final allSessions = await database.getAllSessions();
+    final Set<String> planIds = {};
+    final Set<String> sessionIds = {};
+    for (final sub in subs) {
+      for (final p in allPlans.where((p) => p.subjectId == sub.id)) {
+        planIds.add(p.id);
+      }
+      for (final s in allSessions.where((s) => s.subjectId == sub.id)) {
+        sessionIds.add(s.id);
+      }
+    }
+
     for (final sub in subs) {
       await database.deleteSessionsBySubject(sub.id);
       await database.deletePlansBySubject(sub.id);
       await database.deleteSubject(sub.id);
 
-      // 세션/계획도 Supabase에서 삭제
-      await _safeSync('deleteCategory/sessions',
-              (svc) => _deletePlanAndSessionsBySubject(svc, sub.id), database);
       await _safeSync('deleteCategory/subject',
               (svc) => svc.deleteSubject(sub.id), database);
     }
+
+    // Supabase에서 계획/세션 일괄 삭제
+    await _safeSync('deleteCategory/plans+sessions',
+            (svc) => _deletePlanAndSessionsBySubject(svc, planIds.toList(), sessionIds.toList()), database);
 
     await database.deleteCategory(categoryId);
     await _safeSync('deleteCategory',
@@ -110,18 +126,11 @@ class CategoryViewModel extends _$CategoryViewModel {
   }
 }
 
-// Supabase에서 특정 과목의 계획/세션 삭제 (DB 조회 후 일괄 삭제)
+// Supabase에서 특정 과목의 계획/세션 삭제 (미리 수집된 ID로 일괄 삭제)
 Future<void> _deletePlanAndSessionsBySubject(
-    SupabaseSyncService svc, String subjectId) async {
-  final db = database;
-  final plans = await db.getAllPlans();
-  for (final p in plans.where((p) => p.subjectId == subjectId)) {
-    await svc.deletePlan(p.id);
-  }
-  final sessions = await db.getAllSessions();
-  for (final s in sessions.where((s) => s.subjectId == subjectId)) {
-    await svc.deleteSession(s.id);
-  }
+    SupabaseSyncService svc, List<String> planIds, List<String> sessionIds) async {
+  await svc.deletePlans(planIds);
+  await svc.deleteSessions(sessionIds);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -162,12 +171,18 @@ class SubjectViewModel extends _$SubjectViewModel {
   }
 
   Future<void> deleteSubject(String id) async {
+    // Supabase 삭제를 위해 ID 먼저 수집 (로컬 삭제 전에!)
+    final allPlans = await database.getAllPlans();
+    final allSessions = await database.getAllSessions();
+    final planIds = allPlans.where((p) => p.subjectId == id).map((p) => p.id).toList();
+    final sessionIds = allSessions.where((s) => s.subjectId == id).map((s) => s.id).toList();
+
     await database.deleteSessionsBySubject(id);
     await database.deletePlansBySubject(id);
     await database.deleteSubject(id);
 
     await _safeSync('deleteSubject/plans+sessions',
-            (svc) => _deletePlanAndSessionsBySubject(svc, id), database);
+            (svc) => _deletePlanAndSessionsBySubject(svc, planIds, sessionIds), database);
     await _safeSync(
         'deleteSubject', (svc) => svc.deleteSubject(id), database);
 

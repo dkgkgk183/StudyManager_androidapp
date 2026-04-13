@@ -187,7 +187,16 @@ class AppDatabase extends _$AppDatabase {
   Future<int> deleteSessionsBySubject(String subjectId) =>
       (delete(studySessions)..where((t) => t.subjectId.equals(subjectId))).go();
 
-// 특정 과목의 계획 전체 삭제
+  // 특정 과목의 계획 날짜 목록 조회
+  Future<List<DateTime>> getPlanDatesBySubject(String subjectId) async {
+    final plans = await (select(studyPlans)
+          ..where((t) => t.subjectId.equals(subjectId))
+          ..orderBy([(t) => OrderingTerm.asc(t.targetDate)]))
+        .get();
+    return plans.map((p) => p.targetDate).toList();
+  }
+
+  // 특정 과목의 계획 전체 삭제
   Future<int> deletePlansBySubject(String subjectId) =>
       (delete(studyPlans)..where((t) => t.subjectId.equals(subjectId))).go();
 

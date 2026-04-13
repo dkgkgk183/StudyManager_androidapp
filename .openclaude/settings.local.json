@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find D:AndroidStudioProjectsstudy_manager -type f -name *.dart)",
+      "Bash(find /d/AndroidStudioProjects/study_manager -type f -name *.dart)"
+    ]
+  }
+}
