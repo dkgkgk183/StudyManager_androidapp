@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../services/api_key_service.dart';
 import '../../database/database.dart';
+import '../../viewmodels/sync_provider.dart';
 
 const List<String> _presetColors = [
   '#4CAF50', '#2196F3', '#FF5722', '#9C27B0',
@@ -89,6 +90,20 @@ class SettingsTab extends ConsumerWidget {
               );
             },
           ),
+
+          const Divider(height: 32),
+
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text('클라우드 동기화',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+          ),
+          _SyncTile(),
+
+          const SizedBox(height: 40),
 
           const Divider(height: 32),
 
@@ -569,6 +584,83 @@ class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
         subtitle: const Text('탭하여 입력'),
         onTap: () => _showEditDialog(null),
       ),
+    );
+  }
+}
+
+class _SyncTile extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final syncAsync = ref.watch(initialSyncProvider);
+    final isLoading = syncAsync.isLoading;
+
+    return Column(
+      children: [
+        ListTile(
+          leading: const Icon(Icons.cloud_upload_outlined),
+          title: const Text('Supabase 백업'),
+          subtitle: const Text('현재 기기의 모든 데이터를 클라우드에 업로드'),
+          trailing: isLoading
+              ? const SizedBox(
+              width: 20, height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.chevron_right),
+          onTap: isLoading ? null : () async {
+            final result = await ref
+                .read(initialSyncProvider.notifier)
+                .forcePushAll();
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(result.success
+                  ? '${result.count}개 항목 백업 완료 ✅'
+                  : '백업 실패: ${result.error}'),
+              backgroundColor:
+              result.success ? Colors.green : Colors.red,
+            ));
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.cloud_download_outlined),
+          title: const Text('Supabase 복원'),
+          subtitle: const Text('클라우드 데이터를 현재 기기로 가져오기'),
+          trailing: isLoading
+              ? const SizedBox(
+              width: 20, height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.chevron_right),
+          onTap: isLoading ? null : () async {
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: const Text('데이터 복원'),
+                content: const Text(
+                    'Supabase의 데이터를 이 기기로 가져옵니다.\n'
+                        '중복 항목은 자동으로 병합됩니다.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('취소')),
+                  ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('복원')),
+                ],
+              ),
+            );
+            if (confirmed != true || !context.mounted) return;
+            final result = await ref
+                .read(initialSyncProvider.notifier)
+                .forcePull();
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(result.success
+                  ? '${result.count}개 항목 복원 완료 ✅'
+                  : '복원 실패: ${result.error}'),
+              backgroundColor:
+              result.success ? Colors.green : Colors.red,
+            ));
+          },
+        ),
+      ],
     );
   }
 }

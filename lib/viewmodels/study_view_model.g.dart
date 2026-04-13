@@ -6,7 +6,7 @@ part of 'study_view_model.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$categoryViewModelHash() => r'4ecb625219e55aa3fe89175cdbf5ce1ac158f79a';
+String _$categoryViewModelHash() => r'346bd2b7ec2a8800ccc5a5068ecc74b9367dbe3c';
 
 /// See also [CategoryViewModel].
 @ProviderFor(CategoryViewModel)
@@ -26,7 +26,7 @@ final categoryViewModelProvider =
 
 typedef _$CategoryViewModel =
     AutoDisposeAsyncNotifier<List<Map<String, dynamic>>>;
-String _$subjectViewModelHash() => r'b4c5b55b97cf3a2d44b6a1eff5378d78f248598a';
+String _$subjectViewModelHash() => r'6583f75a5affe7efbcc1bd6ec85c7e5f0af99c84';
 
 /// See also [SubjectViewModel].
 @ProviderFor(SubjectViewModel)
@@ -43,7 +43,7 @@ final subjectViewModelProvider =
 
 typedef _$SubjectViewModel = AutoDisposeAsyncNotifier<List<Subject>>;
 String _$studyPlanViewModelHash() =>
-    r'902b911a5fdc3bdc54d23ef2eefcaf2c44298ec0';
+    r'350b70734cbf9d4e41e47d59576c75e1ba9536f6';
 
 /// Copied from Dart SDK
 class _SystemHash {
@@ -212,7 +212,7 @@ class _StudyPlanViewModelProviderElement
 }
 
 String _$studySessionViewModelHash() =>
-    r'0ccd74643894fcfe14bcf37b9d9f9d1d5adb5555';
+    r'af34426bc752234f475d82fde2e4f0dae35fc222';
 
 abstract class _$StudySessionViewModel
     extends BuildlessAutoDisposeAsyncNotifier<List<Map<String, dynamic>>> {
