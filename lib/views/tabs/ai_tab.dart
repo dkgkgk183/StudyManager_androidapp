@@ -23,10 +23,10 @@ enum AiSession { dailyPlan, preference }
 // ── 계획 데이터 모델 ──────────────────────────────────────
 class _PlanData {
   final String subjectName;
-  final String startTime; // "HH:mm"
+  final String startTime;
   final int goalMinutes;
   final String memo;
-  final String? planDate; // "yyyy-MM-dd" (multi-day support)
+  final String? planDate;
 
   _PlanData({
     required this.subjectName,
@@ -68,8 +68,8 @@ class _ChatMessage {
   final bool isAi;
   final String text;
   final bool isError;
-  final List<_PlanData>? plans; // AI가 파싱한 계획 목록
-  bool plansAdded; // 이미 추가됐는지
+  final List<_PlanData>? plans;
+  bool plansAdded;
 
   _ChatMessage({
     required this.isAi,
@@ -80,25 +80,94 @@ class _ChatMessage {
   });
 }
 
-// ── JSON 파싱 유틸 ────────────────────────────────────────
-// AI 응답에서 ```json ... ``` 블록 추출 및 파싱
-List<_PlanData>? _extractPlans(String text) {
-  final regex = RegExp(r'```json\s*([\s\S]*?)\s*```', multiLine: true);
-  final match = regex.firstMatch(text);
-  if (match == null) return null;
+// ── 저장된 세션 정보 ──────────────────────────────────────
+class _SessionInfo {
+  final String key;       // SharedPreferences 키
+  final DateTime start;
+  final DateTime end;
+  final int messageCount; // 사용자 메시지 수
 
+  _SessionInfo({
+    required this.key,
+    required this.start,
+    required this.end,
+    required this.messageCount,
+  });
+
+  String get label => _DateRange(start: start, end: end).label();
+}
+
+// ── JSON 파싱 유틸 ────────────────────────────────────────
+List<_PlanData>? _extractPlans(String text) {
+  // ① 완전한 ```json ... ``` 블록 우선 시도
+  final closedRegex = RegExp(r'```json\s*([\s\S]*?)\s*```', multiLine: true);
+  final closedMatch = closedRegex.firstMatch(text);
+
+  String? jsonStr;
+  if (closedMatch != null) {
+    jsonStr = closedMatch.group(1)!;
+  } else {
+    // ② 닫는 ``` 없이 잘린 경우: ```json 이후 끝까지
+    final openRegex = RegExp(r'```json\s*([\s\S]*)', multiLine: true);
+    final openMatch = openRegex.firstMatch(text);
+    if (openMatch != null) {
+      jsonStr = openMatch.group(1)!.trim();
+    }
+  }
+
+  if (jsonStr == null || jsonStr.isEmpty) return null;
+
+  // ③ 완전한 JSON 파싱 시도
   try {
-    final jsonStr = match.group(1)!;
     final data = jsonDecode(jsonStr) as Map<String, dynamic>;
     final plans = data['plans'] as List?;
     if (plans == null || plans.isEmpty) return null;
-    return plans.map((e) => _PlanData.fromJson(e as Map<String, dynamic>)).toList();
-  } catch (_) {
-    return null;
-  }
+    return _parsePlanList(plans);
+  } catch (_) {}
+
+  // ④ JSON이 잘렸을 때: 완성된 객체만 추출
+  return _extractPartialPlans(jsonStr);
 }
 
-// AI 응답에서 JSON 블록 제거 (사용자에게 보여줄 텍스트)
+List<_PlanData>? _extractPartialPlans(String jsonStr) {
+  final plansStart = jsonStr.indexOf('"plans"');
+  if (plansStart == -1) return null;
+
+  final bracketStart = jsonStr.indexOf('[', plansStart);
+  if (bracketStart == -1) return null;
+
+  final results = <_PlanData>[];
+  int depth = 0;
+  int objStart = -1;
+
+  for (int i = bracketStart; i < jsonStr.length; i++) {
+    final ch = jsonStr[i];
+    if (ch == '{') {
+      if (depth == 0) objStart = i;
+      depth++;
+    } else if (ch == '}') {
+      depth--;
+      if (depth == 0 && objStart != -1) {
+        final objStr = jsonStr.substring(objStart, i + 1);
+        try {
+          final obj = jsonDecode(objStr) as Map<String, dynamic>;
+          results.add(_PlanData.fromJson(obj));
+        } catch (_) {}
+        objStart = -1;
+      }
+    }
+  }
+
+  return results.isNotEmpty ? results : null;
+}
+
+List<_PlanData> _parsePlanList(List plans) {
+  return plans
+      .whereType<Map<String, dynamic>>()
+      .map((e) => _PlanData.fromJson(e))
+      .toList();
+}
+
 String _stripJsonBlock(String text) =>
     text.replaceAll(RegExp(r'```json\s*[\s\S]*?```', multiLine: true), '').trim();
 
@@ -119,7 +188,6 @@ class _AiTabState extends ConsumerState<AiTab> {
 
   AiSession _currentSession = AiSession.dailyPlan;
 
-  // Date range state for plan mode
   DateTime _rangeStart = DateTime.now();
   DateTime _rangeEnd = DateTime.now();
 
@@ -151,6 +219,9 @@ class _AiTabState extends ConsumerState<AiTab> {
   bool _isLoading = false;
   bool _isDataLoaded = false;
   DateTime _prevSelectedDate = DateTime.now();
+
+  // ── 사이드바 세션 목록 ────────────────────────────────
+  List<_SessionInfo> _savedSessions = [];
 
   @override
   void initState() {
@@ -227,15 +298,13 @@ class _AiTabState extends ConsumerState<AiTab> {
   }
 
   // ── 계획 등록 버튼 처리 ───────────────────────────────
-  Future<void> _addPlans(
-      List<_PlanData> plans, int messageIndex) async {
+  Future<void> _addPlans(List<_PlanData> plans, int messageIndex) async {
     final allSubjects = await database.getAllSubjects();
 
     int addedCount = 0;
     final errors = <String>[];
 
     for (final plan in plans) {
-      // 과목명 매칭 (대소문자 무시, 부분 매칭)
       final matched = allSubjects.where((s) =>
       s.name.contains(plan.subjectName) ||
           plan.subjectName.contains(s.name)).toList();
@@ -247,18 +316,14 @@ class _AiTabState extends ConsumerState<AiTab> {
 
       final subject = matched.first;
 
-      // 날짜 결정: planDate가 있으면 그것을 사용하고, 없으면 rangeStart 기준으로
       DateTime targetDate = _rangeStart;
       if (plan.planDate != null) {
         try {
           final parsed = DateFormat('yyyy-MM-dd').parse(plan.planDate!);
-          targetDate = DateTime(
-            parsed.year, parsed.month, parsed.day,
-          );
+          targetDate = DateTime(parsed.year, parsed.month, parsed.day);
         } catch (_) {}
       }
 
-      // 시간 파싱
       try {
         final parts = plan.startTime.split(':');
         final hour = int.parse(parts[0]);
@@ -280,7 +345,6 @@ class _AiTabState extends ConsumerState<AiTab> {
       addedCount++;
     }
 
-    // 버튼 상태 업데이트
     setState(() {
       final messages = _planMessages();
       if (messageIndex < messages.length) {
@@ -325,6 +389,7 @@ class _AiTabState extends ConsumerState<AiTab> {
     }
 
     await _loadPlanDataForRange();
+    await _loadAllSessions();
     if (mounted) setState(() => _isDataLoaded = true);
   }
 
@@ -348,6 +413,47 @@ class _AiTabState extends ConsumerState<AiTab> {
     }
   }
 
+  // ── 모든 저장된 세션 목록 로드 ───────────────────────
+  Future<void> _loadAllSessions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final allKeys = prefs.getKeys();
+    final sessionKeys = allKeys
+        .where((k) => k.startsWith(_kPlanPrefix) && k.endsWith('_msg'))
+        .toList();
+
+    final sessions = <_SessionInfo>[];
+    for (final fullKey in sessionKeys) {
+      // key 형식: plan_chat_yyyy-MM-dd_yyyy-MM-dd_msg
+      final withoutSuffix = fullKey.replaceAll('_msg', '');
+      final withoutPrefix = withoutSuffix.replaceFirst(_kPlanPrefix, '');
+      // withoutPrefix: yyyy-MM-dd_yyyy-MM-dd
+      final parts = withoutPrefix.split('_');
+      if (parts.length < 2) continue;
+      try {
+        final start = DateFormat('yyyy-MM-dd').parse(parts[0]);
+        final end = DateFormat('yyyy-MM-dd').parse(parts[1]);
+        final msgJson = prefs.getString(fullKey);
+        int userMsgCount = 0;
+        if (msgJson != null) {
+          final list = jsonDecode(msgJson) as List;
+          userMsgCount = list.where((e) => !(e['isAi'] as bool)).length;
+        }
+        if (userMsgCount > 0) {
+          sessions.add(_SessionInfo(
+            key: withoutSuffix,
+            start: start,
+            end: end,
+            messageCount: userMsgCount,
+          ));
+        }
+      } catch (_) {}
+    }
+
+    // 최신순 정렬
+    sessions.sort((a, b) => b.start.compareTo(a.start));
+    if (mounted) setState(() => _savedSessions = sessions);
+  }
+
   Future<void> _savePrefData() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kPrefMessages,
@@ -368,6 +474,7 @@ class _AiTabState extends ConsumerState<AiTab> {
           'isError': m.isError, 'plansAdded': m.plansAdded,
         }).toList()));
     await prefs.setString('${key}_hist', jsonEncode(history));
+    await _loadAllSessions();
   }
 
   void _resyncHistory(
@@ -417,6 +524,46 @@ class _AiTabState extends ConsumerState<AiTab> {
     else await _savePrefData();
   }
 
+  // ── 사이드바: 세션 선택 ──────────────────────────────
+  Future<void> _jumpToSession(_SessionInfo session) async {
+    setState(() {
+      _rangeStart = session.start;
+      _rangeEnd = session.end;
+      _currentSession = AiSession.dailyPlan;
+    });
+    await _loadPlanDataForRange();
+    if (mounted) setState(() {});
+    _scrollToBottom();
+  }
+
+  // ── 사이드바: 세션 삭제 ──────────────────────────────
+  Future<void> _deleteSession(_SessionInfo session) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('대화 세션 삭제'),
+        content: Text('"${session.label}" 대화를 삭제할까요?\n이 작업은 되돌릴 수 없어요.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('취소')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('삭제', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('${session.key}_msg');
+    await prefs.remove('${session.key}_hist');
+    _planMessagesCache.remove(session.key);
+    _planHistoryCache.remove(session.key);
+
+    await _loadAllSessions();
+  }
+
   // ── 시스템 프롬프트 ───────────────────────────────────
   String _buildCategoryContext(List<Map<String, dynamic>> categoryList) {
     if (categoryList.isEmpty) return '';
@@ -431,8 +578,7 @@ class _AiTabState extends ConsumerState<AiTab> {
     return buffer.toString();
   }
 
-  String _buildPlanSystemPrompt(
-      List<Map<String, dynamic>> categoryList) {
+  String _buildPlanSystemPrompt(List<Map<String, dynamic>> categoryList) {
     final categoryCtx = _buildCategoryContext(categoryList);
     final rangeLabel = _DateRange(start: _rangeStart, end: _rangeEnd).label();
     String base = '''
@@ -538,7 +684,7 @@ $categoryCtx
         body: jsonEncode({
           'system_instruction': {'parts': [{'text': systemPrompt}]},
           'contents': currentHistory,
-          'generationConfig': {'temperature': 0.7, 'maxOutputTokens': 1500},
+          'generationConfig': {'temperature': 0.7, 'maxOutputTokens': 8192},
         }),
       );
 
@@ -546,12 +692,9 @@ $categoryCtx
         final data = jsonDecode(utf8.decode(response.bodyBytes));
         final rawText = data['candidates'][0]['content']['parts'][0]['text'] as String;
 
-        // JSON 블록에서 계획 추출
         final plans = isPlan ? _extractPlans(rawText) : null;
-        // 사용자에게 보여줄 텍스트 (JSON 블록 제거)
         final displayText = _stripJsonBlock(rawText);
 
-        // 히스토리에는 원본(JSON 포함)으로 저장
         currentHistory.add({'role': 'model', 'parts': [{'text': rawText}]});
 
         setState(() {
@@ -633,6 +776,7 @@ $categoryCtx
         prefs.remove(_kPrefHistory);
       }
     });
+    await _loadAllSessions();
   }
 
   @override
@@ -641,7 +785,6 @@ $categoryCtx
     final selectedDate = DateTime(
         selectedDateRaw.year, selectedDateRaw.month, selectedDateRaw.day);
 
-    // If the selected date from Today tab changes, update range start/end
     if (_prevSelectedDate != selectedDate) {
       _prevSelectedDate = selectedDate;
       setState(() {
@@ -665,8 +808,21 @@ $categoryCtx
     final rangeDisplay = _DateRange(start: _rangeStart, end: _rangeEnd).label();
 
     return Scaffold(
+      // ── 드로어: 세션 사이드바 ────────────────────────
+      drawer: _SessionDrawer(
+        sessions: _savedSessions,
+        currentKey: _rangeKey(),
+        onSelect: (session) async {
+          Navigator.pop(context);
+          await _jumpToSession(session);
+        },
+        onDelete: (session) async {
+          await _deleteSession(session);
+        },
+      ),
       appBar: AppBar(
         title: Text(isPlan ? 'AI 플래너 · $rangeDisplay' : 'AI 플래너'),
+        // leading은 Drawer가 자동으로 햄버거 버튼 추가
         actions: [
           if (isPlan)
             IconButton(
@@ -859,6 +1015,131 @@ $categoryCtx
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// 세션 사이드바 드로어
+// ══════════════════════════════════════════════════════════════
+
+class _SessionDrawer extends StatelessWidget {
+  final List<_SessionInfo> sessions;
+  final String currentKey;
+  final Future<void> Function(_SessionInfo) onSelect;
+  final Future<void> Function(_SessionInfo) onDelete;
+
+  const _SessionDrawer({
+    required this.sessions,
+    required this.currentKey,
+    required this.onSelect,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Row(
+                children: [
+                  Icon(Icons.history,
+                      color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Text(
+                    '대화 세션 목록',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+            if (sessions.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  '저장된 대화 세션이 없어요.\nAI와 계획을 세우면 여기에 표시돼요.',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  itemCount: sessions.length,
+                  itemBuilder: (context, i) {
+                    final session = sessions[i];
+                    final isCurrent = session.key == currentKey.replaceAll(_kPlanPrefix, _kPlanPrefix);
+                    // currentKey 비교
+                    final isActive = currentKey == session.key ||
+                        currentKey.replaceAll(_kPlanPrefix, '') == session.key.replaceAll(_kPlanPrefix, '');
+
+                    return Dismissible(
+                      key: Key(session.key),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
+                        color: Colors.red.shade400,
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      confirmDismiss: (_) async {
+                        await onDelete(session);
+                        return false; // _loadAllSessions가 갱신하므로 false
+                      },
+                      child: ListTile(
+                        selected: isActive,
+                        selectedTileColor: Theme.of(context)
+                            .colorScheme
+                            .primaryContainer
+                            .withOpacity(0.4),
+                        leading: CircleAvatar(
+                          radius: 18,
+                          backgroundColor: isActive
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.surfaceContainerHighest,
+                          child: Icon(
+                            Icons.chat_bubble_outline,
+                            size: 16,
+                            color: isActive
+                                ? Colors.white
+                                : Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        title: Text(
+                          session.label,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: isActive
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '대화 ${session.messageCount}건',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline,
+                              size: 18, color: Colors.redAccent),
+                          onPressed: () => onDelete(session),
+                        ),
+                        onTap: () => onSelect(session),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── 날짜 범위 선택 다이얼로그 ─────────────────────────────────
 class _DateRangePickerDialog extends StatefulWidget {
   final DateTime start;
@@ -942,31 +1223,25 @@ class _DateRangePickerDialogState extends State<_DateRangePickerDialog> {
           const SizedBox(height: 12),
           InkWell(
             onTap: _pickEnd,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).colorScheme.primary),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.event, size: 20),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('종료일', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                            Text(eLabel, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      ],
-                    ),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Theme.of(context).colorScheme.primary),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.event, size: 20),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('종료일', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text(eLabel, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -1051,8 +1326,6 @@ class _ChatBubble extends StatelessWidget {
                         style: TextStyle(color: textColor, height: 1.5)),
                   ),
                 ),
-
-                // ── 계획 등록 버튼 ─────────────────────
                 if (isAi && message.plans != null) ...[
                   const SizedBox(height: 8),
                   if (plansAdded)
