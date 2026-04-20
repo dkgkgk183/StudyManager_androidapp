@@ -2,7 +2,17 @@
   "permissions": {
     "allow": [
       "Bash(find D:AndroidStudioProjectsstudy_manager -type f -name *.dart)",
-      "Bash(find /d/AndroidStudioProjects/study_manager -type f -name *.dart)"
+      "Bash(find /d/AndroidStudioProjects/study_manager -type f -name *.dart)",
+      "Bash(flutter analyze:*)",
+      "Bash(dart analyze:*)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(python3:*)",
+      "Bash(awk:*)",
+      "Bash(xxd)",
+      "Bash(xxd -r -p)",
+      "Bash(flutter test:*)",
+      "Bash(find /d/AndroidStudioProjects/study_manager -name *test*.dart -o -name *_test.dart)",
+      "Bash(find . -name settings* -type f)"
     ]
   }
 }

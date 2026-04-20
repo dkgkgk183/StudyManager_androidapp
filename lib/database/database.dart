@@ -94,7 +94,7 @@ class AppDatabase extends _$AppDatabase {
 
   Future<List<SubjectCategory>> getAllCategories() =>
       (select(subjectCategories)
-            ..orderBy([(t) => OrderingTerm(expression: t.sortOrder)]))
+        ..orderBy([(t) => OrderingTerm(expression: t.sortOrder)]))
           .get();
 
   Future<bool> updateCategory(SubjectCategory category) =>
@@ -122,8 +122,8 @@ class AppDatabase extends _$AppDatabase {
 
   Future<List<Subject>> getSubjectsByCategory(String categoryId) =>
       (select(subjects)
-            ..where((t) => t.categoryId.equals(categoryId))
-            ..orderBy([(t) => OrderingTerm(expression: t.name)]))
+        ..where((t) => t.categoryId.equals(categoryId))
+        ..orderBy([(t) => OrderingTerm(expression: t.name)]))
           .get();
 
   Future<bool> updateSubject(Subject subject) =>
@@ -143,9 +143,9 @@ class AppDatabase extends _$AppDatabase {
     final start = DateTime(date.year, date.month, date.day);
     final end = start.add(const Duration(days: 1));
     return (select(studyPlans)
-          ..where((t) => t.targetDate.isBiggerOrEqualValue(start) &
-              t.targetDate.isSmallerThanValue(end))
-          ..orderBy([(t) => OrderingTerm(expression: t.createdAt)]))
+      ..where((t) => t.targetDate.isBiggerOrEqualValue(start) &
+      t.targetDate.isSmallerThanValue(end))
+      ..orderBy([(t) => OrderingTerm(expression: t.createdAt)]))
         .get();
   }
 
@@ -159,21 +159,46 @@ class AppDatabase extends _$AppDatabase {
       (update(studyPlans)..where((t) => t.id.equals(id)))
           .write(StudyPlansCompanion(isCompleted: Value(completed)));
 
+  // ── 특정 날짜의 계획 전체 삭제 ───────────────────────
+  Future<int> deletePlansByDate(DateTime date) {
+    final start = DateTime(date.year, date.month, date.day);
+    final end = start.add(const Duration(days: 1));
+    return (delete(studyPlans)
+      ..where((t) =>
+      t.targetDate.isBiggerOrEqualValue(start) &
+      t.targetDate.isSmallerThanValue(end)))
+        .go();
+  }
+
+  // ── 특정 월의 계획이 존재하는 날짜 Set 반환 ──────────
+  Future<Set<DateTime>> getPlanDatesInMonth(int year, int month) async {
+    final start = DateTime(year, month, 1);
+    final end = DateTime(year, month + 1, 1);
+    final plans = await (select(studyPlans)
+      ..where((t) =>
+      t.targetDate.isBiggerOrEqualValue(start) &
+      t.targetDate.isSmallerThanValue(end)))
+        .get();
+    return plans
+        .map((p) => DateTime(p.targetDate.year, p.targetDate.month, p.targetDate.day))
+        .toSet();
+  }
+
   // ── StudySessions ─────────────────────────────────────
   Future<int> insertSession(StudySessionsCompanion entry) =>
       into(studySessions).insert(entry, mode: InsertMode.insertOrReplace);
 
   Future<List<StudySession>> getAllSessions() =>
       (select(studySessions)
-            ..orderBy([(t) => OrderingTerm(expression: t.startTime, mode: OrderingMode.desc)]))
+        ..orderBy([(t) => OrderingTerm(expression: t.startTime, mode: OrderingMode.desc)]))
           .get();
 
   Future<List<StudySession>> getSessionsByDate(DateTime date) {
     final start = DateTime(date.year, date.month, date.day);
     final end = start.add(const Duration(days: 1));
     return (select(studySessions)
-          ..where((t) => t.startTime.isBiggerOrEqualValue(start) &
-              t.startTime.isSmallerThanValue(end)))
+      ..where((t) => t.startTime.isBiggerOrEqualValue(start) &
+      t.startTime.isSmallerThanValue(end)))
         .get();
   }
 
@@ -190,8 +215,8 @@ class AppDatabase extends _$AppDatabase {
   // 특정 과목의 계획 날짜 목록 조회
   Future<List<DateTime>> getPlanDatesBySubject(String subjectId) async {
     final plans = await (select(studyPlans)
-          ..where((t) => t.subjectId.equals(subjectId))
-          ..orderBy([(t) => OrderingTerm.asc(t.targetDate)]))
+      ..where((t) => t.subjectId.equals(subjectId))
+      ..orderBy([(t) => OrderingTerm.asc(t.targetDate)]))
         .get();
     return plans.map((p) => p.targetDate).toList();
   }
@@ -215,7 +240,7 @@ class AppDatabase extends _$AppDatabase {
       innerJoin(subjects, subjects.id.equalsExp(studyPlans.subjectId)),
     ])
       ..where(studyPlans.targetDate.isBiggerOrEqualValue(start) &
-          studyPlans.targetDate.isSmallerThanValue(end))
+      studyPlans.targetDate.isSmallerThanValue(end))
       ..orderBy([OrderingTerm.asc(studyPlans.createdAt)]));
   }
 
@@ -226,7 +251,7 @@ class AppDatabase extends _$AppDatabase {
       innerJoin(subjects, subjects.id.equalsExp(studySessions.subjectId)),
     ])
       ..where(studySessions.startTime.isBiggerOrEqualValue(start) &
-          studySessions.startTime.isSmallerThanValue(end)));
+      studySessions.startTime.isSmallerThanValue(end)));
   }
 
   Future<List<Map<String, dynamic>>> getTotalSecondsBySubject() async {
@@ -246,11 +271,11 @@ class AppDatabase extends _$AppDatabase {
 
   // ── 전체 초기화 ───────────────────────────────────────
   Future<void> clearAllData() => transaction(() async {
-        await delete(studySessions).go();
-        await delete(studyPlans).go();
-        await delete(subjects).go();
-        await delete(subjectCategories).go();
-      });
+    await delete(studySessions).go();
+    await delete(studyPlans).go();
+    await delete(subjects).go();
+    await delete(subjectCategories).go();
+  });
 }
 
 LazyDatabase _openConnection() {

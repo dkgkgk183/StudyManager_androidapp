@@ -4,7 +4,14 @@ import 'package:intl/intl.dart';
 import '../../viewmodels/ui_state.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../database/database.dart';
+import '../../main.dart' show database;
 import '../study_lock_screen.dart';
+
+// ── 월별 계획 날짜 Provider ───────────────────────────────
+final planDatesInMonthProvider =
+FutureProvider.family<Set<DateTime>, DateTime>((ref, monthKey) async {
+  return database.getPlanDatesInMonth(monthKey.year, monthKey.month);
+});
 
 class TodayTab extends ConsumerStatefulWidget {
   const TodayTab({super.key});
@@ -42,6 +49,22 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     if (monday != _weekStart) setState(() => _weekStart = monday);
   }
 
+  // ── 월 달력 팝업 ─────────────────────────────────────
+  Future<void> _showMonthCalendar(
+      BuildContext context, DateTime currentMonth, Set<DateTime> planDates) async {
+    final picked = await showDialog<DateTime>(
+      context: context,
+      builder: (context) => _MonthCalendarDialog(
+        initialMonth: currentMonth,
+        planDates: planDates,
+        selectedDate: ref.read(selectedDateProvider),
+      ),
+    );
+    if (picked != null) {
+      _selectDate(picked);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedDate = ref.watch(selectedDateProvider);
@@ -50,6 +73,25 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     final today = DateTime(
         DateTime.now().year, DateTime.now().month, DateTime.now().day);
     final days = _weekDays;
+
+    // 주간 바에서 보이는 달 기준으로 계획 날짜 조회 (첫 번째 날 기준)
+    final monthKey = DateTime(_weekStart.year, _weekStart.month);
+    final planDatesAsync = ref.watch(planDatesInMonthProvider(monthKey));
+    // 주가 두 달에 걸치면 마지막 날의 달도 조회
+    final lastDay = days.last;
+    final lastMonthKey = DateTime(lastDay.year, lastDay.month);
+    final planDatesLastAsync = lastMonthKey != monthKey
+        ? ref.watch(planDatesInMonthProvider(lastMonthKey))
+        : null;
+
+    final Set<DateTime> planDates = {
+      ...planDatesAsync.valueOrNull ?? {},
+      ...planDatesLastAsync?.valueOrNull ?? {},
+    };
+
+    // selectedDate 기준 월의 계획 날짜 (달력 팝업용)
+    final selMonthKey = DateTime(selectedDate.year, selectedDate.month);
+    final selPlanDatesAsync = ref.watch(planDatesInMonthProvider(selMonthKey));
 
     final firstMonth = DateFormat('yyyy년 M월', 'ko').format(days.first);
     final lastMonth = DateFormat('yyyy년 M월', 'ko').format(days.last);
@@ -82,10 +124,33 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                         visualDensity: VisualDensity.compact,
                       ),
                       Expanded(
-                        child: Text(monthLabel,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 13)),
+                        child: GestureDetector(
+                          onTap: () => _showMonthCalendar(
+                            context,
+                            DateTime(selectedDate.year, selectedDate.month),
+                            selPlanDatesAsync.valueOrNull ?? {},
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                monthLabel,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.calendar_month,
+                                size: 14,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                       IconButton(
                         onPressed: _nextWeek,
@@ -104,6 +169,7 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                       final isToday = date == today;
                       final isSat = date.weekday == DateTime.saturday;
                       final isSun = date.weekday == DateTime.sunday;
+                      final hasPlan = planDates.contains(date);
 
                       Color dayNumColor;
                       if (isSelected) {
@@ -122,67 +188,94 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                       return Expanded(
                         child: GestureDetector(
                           onTap: () => _selectDate(date),
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 2),
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? Theme.of(context).colorScheme.primary
-                                  : isToday
-                                  ? Theme.of(context)
-                                  .colorScheme
-                                  .primaryContainer
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  DateFormat('E', 'ko').format(date),
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: isSelected
-                                        ? Colors.white.withOpacity(0.85)
-                                        : isSat
-                                        ? Colors.blue
-                                        : isSun
-                                        ? Colors.red
-                                        : Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                  ),
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 2),
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? Theme.of(context).colorScheme.primary
+                                      : isToday
+                                      ? Theme.of(context)
+                                      .colorScheme
+                                      .primaryContainer
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  date.day.toString(),
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: dayNumColor,
-                                  ),
-                                ),
-                                SizedBox(
-                                  height: 5,
-                                  child: isToday
-                                      ? Center(
-                                    child: Container(
-                                      width: 4,
-                                      height: 4,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      DateFormat('E', 'ko').format(date),
+                                      style: TextStyle(
+                                        fontSize: 10,
                                         color: isSelected
-                                            ? Colors.white
+                                            ? Colors.white.withOpacity(0.85)
+                                            : isSat
+                                            ? Colors.blue
+                                            : isSun
+                                            ? Colors.red
                                             : Theme.of(context)
                                             .colorScheme
-                                            .primary,
+                                            .onSurfaceVariant,
                                       ),
                                     ),
-                                  )
-                                      : null,
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      date.day.toString(),
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: dayNumColor,
+                                      ),
+                                    ),
+                                    SizedBox(
+                                      height: 5,
+                                      child: isToday
+                                          ? Center(
+                                        child: Container(
+                                          width: 4,
+                                          height: 4,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: isSelected
+                                                ? Colors.white
+                                                : Theme.of(context)
+                                                .colorScheme
+                                                .primary,
+                                          ),
+                                        ),
+                                      )
+                                          : null,
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
+                              ),
+                              // ── 계획 있는 날 빨간 점 ────────────────
+                              if (hasPlan)
+                                Positioned(
+                                  top: 0,
+                                  right: 2,
+                                  child: Container(
+                                    width: 7,
+                                    height: 7,
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? Colors.white
+                                          : Colors.redAccent,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? Theme.of(context).colorScheme.primary
+                                            : Colors.white,
+                                        width: 1,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       );
@@ -199,10 +292,43 @@ class _TodayTabState extends ConsumerState<TodayTab> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                _SectionHeader(
-                  title: '오늘의 계획',
-                  onAdd: () =>
-                      _showAddPlanDialog(context, ref, selectedDate),
+                // ── 계획 헤더 (추가 + 전체 삭제) ──────────
+                plansAsync.when(
+                  data: (plans) => Row(
+                    children: [
+                      Expanded(
+                        child: _SectionHeader(
+                          title: '오늘의 계획',
+                          onAdd: () =>
+                              _showAddPlanDialog(context, ref, selectedDate),
+                        ),
+                      ),
+                      if (plans.isNotEmpty)
+                        TextButton.icon(
+                          onPressed: () =>
+                              _confirmDeleteAllPlans(context, ref, selectedDate),
+                          icon: const Icon(Icons.delete_sweep,
+                              size: 16, color: Colors.redAccent),
+                          label: const Text('전체 삭제',
+                              style: TextStyle(
+                                  fontSize: 13, color: Colors.redAccent)),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                          ),
+                        ),
+                    ],
+                  ),
+                  loading: () => _SectionHeader(
+                    title: '오늘의 계획',
+                    onAdd: () =>
+                        _showAddPlanDialog(context, ref, selectedDate),
+                  ),
+                  error: (_, __) => _SectionHeader(
+                    title: '오늘의 계획',
+                    onAdd: () =>
+                        _showAddPlanDialog(context, ref, selectedDate),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 plansAsync.when(
@@ -264,6 +390,41 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     );
   }
 
+  // ── 계획 전체 삭제 확인 ──────────────────────────────
+  Future<void> _confirmDeleteAllPlans(
+      BuildContext context, WidgetRef ref, DateTime selectedDate) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('계획 전체 삭제'),
+        content: Text(
+          '${DateFormat('M월 d일', 'ko').format(selectedDate)}의\n'
+              '모든 계획을 삭제할까요?\n\n이 작업은 되돌릴 수 없어요.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('전체 삭제',
+                style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    await ref
+        .read(studyPlanViewModelProvider(selectedDate).notifier)
+        .deleteAllPlansForDate(selectedDate);
+
+    // 계획 날짜 캐시 갱신
+    final monthKey = DateTime(selectedDate.year, selectedDate.month);
+    ref.invalidate(planDatesInMonthProvider(monthKey));
+  }
+
   // ── 계획 추가 ─────────────────────────────────────────
   Future<void> _showAddPlanDialog(
       BuildContext context, WidgetRef ref, DateTime selectedDate) async {
@@ -309,6 +470,9 @@ class _TodayTabState extends ConsumerState<TodayTab> {
             goalMinutes: goalMinutes,
             memo: memo,
           );
+          // 계획 날짜 캐시 갱신
+          final monthKey = DateTime(selectedDate.year, selectedDate.month);
+          ref.invalidate(planDatesInMonthProvider(monthKey));
         },
       ),
     );
@@ -378,7 +542,222 @@ class _TodayTabState extends ConsumerState<TodayTab> {
   }
 }
 
-// ── 계획 추가 다이얼로그 ──────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// 월 달력 다이얼로그
+// ══════════════════════════════════════════════════════════════
+
+class _MonthCalendarDialog extends StatefulWidget {
+  final DateTime initialMonth;
+  final Set<DateTime> planDates;
+  final DateTime selectedDate;
+
+  const _MonthCalendarDialog({
+    required this.initialMonth,
+    required this.planDates,
+    required this.selectedDate,
+  });
+
+  @override
+  State<_MonthCalendarDialog> createState() => _MonthCalendarDialogState();
+}
+
+class _MonthCalendarDialogState extends State<_MonthCalendarDialog> {
+  late DateTime _displayMonth;
+  Set<DateTime> _planDates = {};
+  bool _loadingDates = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayMonth = widget.initialMonth;
+    _planDates = widget.planDates;
+  }
+
+  Future<void> _loadDatesForMonth(DateTime month) async {
+    setState(() => _loadingDates = true);
+    final dates = await database.getPlanDatesInMonth(month.year, month.month);
+    if (mounted) setState(() { _planDates = dates; _loadingDates = false; });
+  }
+
+  void _prevMonth() {
+    final prev = DateTime(_displayMonth.year, _displayMonth.month - 1);
+    setState(() => _displayMonth = prev);
+    _loadDatesForMonth(prev);
+  }
+
+  void _nextMonth() {
+    final next = DateTime(_displayMonth.year, _displayMonth.month + 1);
+    setState(() => _displayMonth = next);
+    _loadDatesForMonth(next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    final firstDay = DateTime(_displayMonth.year, _displayMonth.month, 1);
+    // 달력 시작: 해당 월 1일의 요일 맞추기 (월=1 기준)
+    final startOffset = firstDay.weekday - 1; // 0=월, 6=일
+    final daysInMonth = DateUtils.getDaysInMonth(_displayMonth.year, _displayMonth.month);
+    final totalCells = startOffset + daysInMonth;
+    final rows = (totalCells / 7).ceil();
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 월 네비게이션
+            Row(
+              children: [
+                IconButton(
+                  onPressed: _prevMonth,
+                  icon: const Icon(Icons.chevron_left),
+                  visualDensity: VisualDensity.compact,
+                ),
+                Expanded(
+                  child: Text(
+                    DateFormat('yyyy년 M월', 'ko').format(_displayMonth),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _nextMonth,
+                  icon: const Icon(Icons.chevron_right),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // 요일 헤더
+            Row(
+              children: ['월', '화', '수', '목', '금', '토', '일'].map((d) {
+                Color c = Colors.grey;
+                if (d == '토') c = Colors.blue;
+                if (d == '일') c = Colors.red;
+                return Expanded(
+                  child: Center(
+                    child: Text(d,
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: c)),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 4),
+            // 날짜 그리드
+            if (_loadingDates)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(),
+              )
+            else
+              ...List.generate(rows, (rowIdx) {
+                return Row(
+                  children: List.generate(7, (colIdx) {
+                    final cellIdx = rowIdx * 7 + colIdx;
+                    final dayNum = cellIdx - startOffset + 1;
+                    if (dayNum < 1 || dayNum > daysInMonth) {
+                      return const Expanded(child: SizedBox(height: 44));
+                    }
+                    final date = DateTime(
+                        _displayMonth.year, _displayMonth.month, dayNum);
+                    final isSelected = date == widget.selectedDate;
+                    final isToday = date == today;
+                    final hasPlan = _planDates.contains(date);
+                    final isSat = date.weekday == DateTime.saturday;
+                    final isSun = date.weekday == DateTime.sunday;
+
+                    Color numColor;
+                    if (isSelected) numColor = Colors.white;
+                    else if (isToday) numColor = Theme.of(context).colorScheme.primary;
+                    else if (isSat) numColor = Colors.blue;
+                    else if (isSun) numColor = Colors.red;
+                    else numColor = Theme.of(context).colorScheme.onSurface;
+
+                    return Expanded(
+                      child: GestureDetector(
+                        onTap: () => Navigator.pop(context, date),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.all(3),
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? Theme.of(context).colorScheme.primary
+                                    : isToday
+                                    ? Theme.of(context)
+                                    .colorScheme
+                                    .primaryContainer
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                '$dayNum',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: isToday || isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: numColor,
+                                ),
+                              ),
+                            ),
+                            // 계획 있는 날 빨간 점
+                            if (hasPlan)
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? Colors.white
+                                        : Colors.redAccent,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? Theme.of(context).colorScheme.primary
+                                          : Colors.white,
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                );
+              }),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('닫기'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 계획 추가 다이얼로그
+// ══════════════════════════════════════════════════════════════
+
 class _AddPlanDialog extends StatefulWidget {
   final DateTime selectedDate;
   final List<Map<String, dynamic>> validCategories;
@@ -413,7 +792,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
     _selectedCategory = widget.validCategories.first;
     _selectedSubject =
         (_selectedCategory['subjects'] as List<Subject>).first;
-    // 목표 시간 변경 시 종료 시각 자동 업데이트
     _goalCtrl.addListener(() => setState(() {}));
   }
 
@@ -427,7 +805,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
   List<Subject> get _currentSubjects =>
       _selectedCategory['subjects'] as List<Subject>;
 
-  // 종료 시각 계산
   String? get _endTimeString {
     if (_selectedTime == null) return null;
     final goalMinutes = int.tryParse(_goalCtrl.text) ?? 0;
@@ -478,7 +855,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 카테고리
             const Text('카테고리',
                 style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
@@ -501,8 +877,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
               },
             ),
             const SizedBox(height: 12),
-
-            // 과목
             const Text('과목',
                 style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
@@ -526,8 +900,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
               },
             ),
             const SizedBox(height: 12),
-
-            // 시작 시간 (필수)
             Row(
               children: [
                 const Text('시작 시간',
@@ -583,8 +955,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
               ),
             ),
             const SizedBox(height: 12),
-
-            // 목표 공부 시간
             const Text('목표 공부 시간',
                 style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
@@ -597,8 +967,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
                 suffixText: '분',
               ),
             ),
-
-            // 종료 시각 자동 표시
             if (endTime != null) ...[
               const SizedBox(height: 8),
               Container(
@@ -630,8 +998,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
               ),
             ],
             const SizedBox(height: 12),
-
-            // 메모
             const Text('메모',
                 style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
@@ -651,7 +1017,6 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
             onPressed: () => Navigator.pop(context),
             child: const Text('취소')),
         ElevatedButton(
-          // 시작 시간 미선택 시 비활성화
           onPressed: (_isLoading || _selectedTime == null)
               ? null
               : () async {
@@ -726,7 +1091,7 @@ class _EmptyHint extends StatelessWidget {
   }
 }
 
-// ── 계획 카드 (체크박스 없음, 길게 누르면 삭제) ─────────────
+// ── 계획 카드 ─────────────────────────────────────────────
 class _PlanCard extends ConsumerStatefulWidget {
   final StudyPlan plan;
   final Subject subject;
@@ -804,6 +1169,10 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
                   .read(studyPlanViewModelProvider(widget.date)
                   .notifier)
                   .deletePlan(widget.plan.id);
+              // 계획 날짜 캐시 갱신
+              final monthKey = DateTime(
+                  widget.date.year, widget.date.month);
+              ref.invalidate(planDatesInMonthProvider(monthKey));
             },
           )
               : null,
@@ -813,7 +1182,7 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
   }
 }
 
-// ── 세션 카드 (길게 누르면 삭제) ──────────────────────────
+// ── 세션 카드 ─────────────────────────────────────────────
 class _SessionCard extends ConsumerStatefulWidget {
   final StudySession session;
   final Subject subject;
@@ -837,7 +1206,6 @@ class _SessionCardState extends ConsumerState<_SessionCard> {
         ? '진행 중...'
         : '$minutes분 ${seconds}초';
 
-    // 시작 시각 표시
     final startStr =
     DateFormat('HH:mm').format(widget.session.startTime);
 

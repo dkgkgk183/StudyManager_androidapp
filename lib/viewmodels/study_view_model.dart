@@ -193,7 +193,7 @@ class SubjectViewModel extends _$SubjectViewModel {
 }
 
 // ─────────────────────────────────────────────────────────────
-// StudyPlanViewModel  ← 계획 sync 추가
+// StudyPlanViewModel
 // ─────────────────────────────────────────────────────────────
 
 @riverpod
@@ -225,7 +225,6 @@ class StudyPlanViewModel extends _$StudyPlanViewModel {
       createdAt: now,
     ));
 
-    // ← 계획 sync 추가
     await _safeSync('addPlan', (svc) => svc.syncPlan(StudyPlan(
       id: id,
       subjectId: subjectId,
@@ -242,7 +241,6 @@ class StudyPlanViewModel extends _$StudyPlanViewModel {
   Future<void> toggleComplete(String planId, bool completed) async {
     await database.markPlanCompleted(planId, completed);
 
-    // 변경된 plan 조회 후 sync
     final plans = await database.getAllPlans();
     final plan = plans.where((p) => p.id == planId).firstOrNull;
     if (plan != null) {
@@ -257,6 +255,20 @@ class StudyPlanViewModel extends _$StudyPlanViewModel {
     await database.deletePlan(planId);
     await _safeSync(
         'deletePlan', (svc) => svc.deletePlan(planId), database);
+    ref.invalidateSelf();
+  }
+
+  // ── 해당 날짜 계획 전체 삭제 ─────────────────────────
+  Future<void> deleteAllPlansForDate(DateTime date) async {
+    final plans = await database.getPlansByDate(date);
+    final planIds = plans.map((p) => p.id).toList();
+
+    await database.deletePlansByDate(date);
+
+    if (planIds.isNotEmpty) {
+      await _safeSync('deleteAllPlansForDate',
+              (svc) => svc.deletePlans(planIds), database);
+    }
     ref.invalidateSelf();
   }
 
@@ -293,7 +305,7 @@ class StudyPlanViewModel extends _$StudyPlanViewModel {
 }
 
 // ─────────────────────────────────────────────────────────────
-// StudySessionViewModel  ← 세션 sync 추가
+// StudySessionViewModel
 // ─────────────────────────────────────────────────────────────
 
 @riverpod
@@ -321,7 +333,6 @@ class StudySessionViewModel extends _$StudySessionViewModel {
       startTime: startTime,
     ));
 
-    // 세션 시작 시 Supabase에 즉시 push (endTime=null 상태)
     await _safeSync('startSession', (svc) => svc.syncSession(StudySession(
       id: id,
       subjectId: subjectId,
@@ -346,7 +357,6 @@ class StudySessionViewModel extends _$StudySessionViewModel {
     );
     await database.updateSession(updated);
 
-    // 종료된 세션 sync
     await _safeSync(
         'endSession', (svc) => svc.syncSession(updated), database);
 
