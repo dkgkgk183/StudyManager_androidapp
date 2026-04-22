@@ -192,6 +192,7 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                             clipBehavior: Clip.none,
                             children: [
                               Container(
+                                width: double.infinity,
                                 margin: const EdgeInsets.symmetric(horizontal: 2),
                                 padding: const EdgeInsets.symmetric(vertical: 6),
                                 decoration: BoxDecoration(
