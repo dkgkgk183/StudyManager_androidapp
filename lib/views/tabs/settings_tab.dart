@@ -5,6 +5,7 @@ import '../../services/api_key_service.dart';
 import '../../database/database.dart';
 import '../../main.dart';
 import '../../viewmodels/sync_provider.dart';
+import '../../viewmodels/ui_state.dart';
 
 const List<String> _presetColors = [
   '#4CAF50', '#2196F3', '#FF5722', '#9C27B0',
@@ -91,6 +92,19 @@ class SettingsTab extends ConsumerWidget {
               );
             },
           ),
+
+          const Divider(height: 32),
+
+          // ── 테마 설정 섹션 ────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text('테마',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+          ),
+          _ThemeSettingTile(),
 
           const Divider(height: 32),
 
@@ -696,6 +710,42 @@ class _SyncTile extends ConsumerWidget {
               result.success ? Colors.green : Colors.red,
             ));
           },
+        ),
+      ],
+    );
+  }
+}
+
+class _ThemeSettingTile extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(appThemeModeProvider);
+
+    return Column(
+      children: [
+        RadioListTile<ThemeMode>(
+          title: const Text('시스템 설정 따름'),
+          secondary: const Icon(Icons.brightness_auto),
+          value: ThemeMode.system,
+          groupValue: themeMode,
+          onChanged: (v) =>
+              ref.read(appThemeModeProvider.notifier).setTheme(v!),
+        ),
+        RadioListTile<ThemeMode>(
+          title: const Text('라이트 모드'),
+          secondary: const Icon(Icons.light_mode),
+          value: ThemeMode.light,
+          groupValue: themeMode,
+          onChanged: (v) =>
+              ref.read(appThemeModeProvider.notifier).setTheme(v!),
+        ),
+        RadioListTile<ThemeMode>(
+          title: const Text('다크 모드'),
+          secondary: const Icon(Icons.dark_mode),
+          value: ThemeMode.dark,
+          groupValue: themeMode,
+          onChanged: (v) =>
+              ref.read(appThemeModeProvider.notifier).setTheme(v!),
         ),
       ],
     );

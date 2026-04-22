@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -986,7 +987,8 @@ $categoryCtx
                 final message = currentMessages[index];
                 return _ChatBubble(
                   message: message,
-                  onLongPress: message.isAi ? null
+                  onDelete: message.isAi
+                      ? null
                       : () => _deleteMessagePair(index, isPlan),
                   onAddPlans: (message.isAi && message.plans != null && !message.plansAdded)
                       ? () => _addPlans(message.plans!, index)
@@ -1261,58 +1263,145 @@ class _DateRangePickerDialogState extends State<_DateRangePickerDialog> {
 }
 
 // ── 채팅 말풍선 ───────────────────────────────────────────
-class _ChatBubble extends StatelessWidget {
+class _ChatBubble extends StatefulWidget {
   final _ChatMessage message;
-  final VoidCallback? onLongPress;
+  final VoidCallback? onDelete;   // 사용자 메시지만 전달됨
   final VoidCallback? onAddPlans;
   final bool plansAdded;
 
   const _ChatBubble({
     required this.message,
-    this.onLongPress,
+    this.onDelete,
     this.onAddPlans,
     this.plansAdded = false,
   });
 
   @override
+  State<_ChatBubble> createState() => _ChatBubbleState();
+}
+
+class _ChatBubbleState extends State<_ChatBubble> {
+  final _bubbleKey = GlobalKey();
+
+  Future<void> _showContextMenu() async {
+    final isAi = widget.message.isAi;
+
+    // 말풍선의 화면 위치 계산
+    final renderBox =
+    _bubbleKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+
+    // 메뉴 표시 위치: 말풍선 위쪽 중앙
+    final position = RelativeRect.fromLTRB(
+      isAi ? offset.dx : offset.dx + size.width - 160,
+      offset.dy - 4,
+      isAi ? offset.dx + 160 : offset.dx + size.width,
+      offset.dy + size.height,
+    );
+
+    final items = <PopupMenuEntry<String>>[
+      PopupMenuItem<String>(
+        value: 'copy',
+        child: Row(
+          children: const [
+            Icon(Icons.copy, size: 18),
+            SizedBox(width: 10),
+            Text('복사'),
+          ],
+        ),
+      ),
+      if (!isAi) ...[
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'delete',
+          child: Row(
+            children: const [
+              Icon(Icons.delete_outline, size: 18, color: Colors.red),
+              SizedBox(width: 10),
+              Text('삭제', style: TextStyle(color: Colors.red)),
+            ],
+          ),
+        ),
+      ],
+    ];
+
+    final result = await showMenu<String>(
+      context: context,
+      position: position,
+      items: items,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 4,
+    );
+
+    if (result == 'copy') {
+      // 클립보드 복사
+      await _copyToClipboard(widget.message.text);
+    } else if (result == 'delete') {
+      widget.onDelete?.call();
+    }
+  }
+
+  Future<void> _copyToClipboard(String text) async {
+    // flutter/services의 Clipboard 사용
+    await _ClipboardHelper.copy(text);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('클립보드에 복사됐어요'),
+          duration: Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isAi = message.isAi;
-    final bubbleColor = message.isError
+    final isAi = widget.message.isAi;
+    final bubbleColor = widget.message.isError
         ? Colors.red.shade50
         : isAi
         ? Theme.of(context).colorScheme.surfaceContainerHighest
         : Theme.of(context).colorScheme.primary;
-    final textColor = message.isError
+    final textColor = widget.message.isError
         ? Colors.red
         : isAi
         ? Theme.of(context).colorScheme.onSurface
-        : Colors.white;
+        : Theme.of(context).colorScheme.onPrimary;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
-        mainAxisAlignment: isAi ? MainAxisAlignment.start : MainAxisAlignment.end,
+        mainAxisAlignment:
+        isAi ? MainAxisAlignment.start : MainAxisAlignment.end,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (isAi) ...[
             CircleAvatar(
               radius: 16,
-              backgroundColor: message.isError
-                  ? Colors.red : Theme.of(context).colorScheme.primary,
-              child: Icon(message.isError ? Icons.error : Icons.smart_toy,
-                  size: 18, color: Colors.white),
+              backgroundColor: widget.message.isError
+                  ? Colors.red
+                  : Theme.of(context).colorScheme.primary,
+              child: Icon(
+                  widget.message.isError ? Icons.error : Icons.smart_toy,
+                  size: 18,
+                  color: Colors.white),
             ),
             const SizedBox(width: 8),
           ],
           Flexible(
             child: Column(
-              crossAxisAlignment: isAi
-                  ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+              crossAxisAlignment:
+              isAi ? CrossAxisAlignment.start : CrossAxisAlignment.end,
               children: [
                 GestureDetector(
-                  onLongPress: onLongPress,
+                  onLongPress: _showContextMenu,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    key: _bubbleKey,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
                       color: bubbleColor,
                       borderRadius: BorderRadius.only(
@@ -1322,13 +1411,13 @@ class _ChatBubble extends StatelessWidget {
                         bottomRight: const Radius.circular(16),
                       ),
                     ),
-                    child: Text(message.text,
+                    child: Text(widget.message.text,
                         style: TextStyle(color: textColor, height: 1.5)),
                   ),
                 ),
-                if (isAi && message.plans != null) ...[
+                if (isAi && widget.message.plans != null) ...[
                   const SizedBox(height: 8),
-                  if (plansAdded)
+                  if (widget.plansAdded)
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 8),
@@ -1343,20 +1432,23 @@ class _ChatBubble extends StatelessWidget {
                           Icon(Icons.check_circle,
                               size: 16, color: Colors.green.shade600),
                           const SizedBox(width: 6),
-                          Text('${message.plans!.length}개 계획이 추가됐어요',
+                          Text('${widget.message.plans!.length}개 계획이 추가됐어요',
                               style: TextStyle(
-                                  fontSize: 13, color: Colors.green.shade700,
+                                  fontSize: 13,
+                                  color: Colors.green.shade700,
                                   fontWeight: FontWeight.w500)),
                         ],
                       ),
                     )
                   else
                     ElevatedButton.icon(
-                      onPressed: onAddPlans,
+                      onPressed: widget.onAddPlans,
                       icon: const Icon(Icons.add_task, size: 18),
-                      label: Text('계획 ${message.plans!.length}개 추가하기'),
+                      label:
+                      Text('계획 ${widget.message.plans!.length}개 추가하기'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        backgroundColor:
+                        Theme.of(context).colorScheme.primary,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 10),
@@ -1371,6 +1463,13 @@ class _ChatBubble extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// Clipboard 헬퍼
+class _ClipboardHelper {
+  static Future<void> copy(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
   }
 }
 
