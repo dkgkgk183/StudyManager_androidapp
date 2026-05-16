@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../services/api_key_service.dart';
+import '../../services/supabase_sync_service.dart';
 import '../../database/database.dart';
 import '../../main.dart';
 import '../../viewmodels/sync_provider.dart';
@@ -72,60 +75,32 @@ class SettingsTab extends ConsumerWidget {
 
           const Divider(height: 32),
 
-          // ── 기기 연동 섹션 ────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text('라즈베리파이 연동',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold)),
-          ),
-          ListTile(
-            leading: const Icon(Icons.wifi),
-            title: const Text('기기 IP 주소'),
-            subtitle: const Text('미설정'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('기기 연동 설정 구현 예정')),
-              );
-            },
-          ),
-
-          const Divider(height: 32),
-
           // ── 테마 설정 섹션 ────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text('테마',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold)),
-          ),
           _ThemeSettingTile(),
 
           const Divider(height: 32),
 
+          _SyncTile(),
+
+          const Divider(height: 32),
+
+          // ── 기기 번호 섹션 ────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text('클라우드 동기화',
+            child: Text('기기 번호',
                 style: Theme.of(context)
                     .textTheme
                     .titleMedium
                     ?.copyWith(fontWeight: FontWeight.bold)),
           ),
-          _SyncTile(),
-
-          const SizedBox(height: 40),
+          _DeviceIdTile(),
 
           const Divider(height: 32),
 
-          // ── Gemini API 키 섹션 ────────────────────────────
+          // ── OpenRouter API 키 섹션 ────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text('Gemini API',
+            child: Text('OpenRouter API',
                 style: Theme.of(context)
                     .textTheme
                     .titleMedium
@@ -526,13 +501,13 @@ class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Gemini API 키 설정'),
+          title: const Text('OpenRouter API 키 설정'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Google AI Studio에서 발급받은 API 키를 입력하세요.\n키는 기기에만 저장되며 외부로 전송되지 않아요.',
+                'OpenRouter에서 발급받은 API 키를 입력하세요.\n키는 기기에만 저장되며 외부로 전송되지 않아요.',
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 12),
@@ -645,7 +620,13 @@ class _SyncTile extends ConsumerWidget {
     final syncAsync = ref.watch(initialSyncProvider);
     final isLoading = syncAsync.isLoading;
 
-    return Column(
+    return ExpansionTile(
+      leading: const Icon(Icons.cloud_outlined),
+      title: Text('클라우드 동기화',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.bold)),
       children: [
         ListTile(
           leading: const Icon(Icons.cloud_upload_outlined),
@@ -716,12 +697,198 @@ class _SyncTile extends ConsumerWidget {
   }
 }
 
+class _DeviceIdTile extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_DeviceIdTile> createState() => _DeviceIdTileState();
+}
+
+class _DeviceIdTileState extends ConsumerState<_DeviceIdTile> {
+  String? _deviceId;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() => _deviceId = prefs.getString('device_number'));
+  }
+
+  void _showEditDialog() {
+    final ctrl = TextEditingController(text: _deviceId ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('기기 번호 설정'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '이 스마트폰을 식별하는 3자리 번호예요.\n000 ~ 999 사이로 입력해주세요.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              maxLength: 3,
+              style: const TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 12,
+              ),
+              decoration: InputDecoration(
+                counterText: '',
+                hintText: '000',
+                hintStyle: TextStyle(color: Colors.grey.shade300),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          if (_deviceId != null && _deviceId!.isNotEmpty)
+            TextButton(
+              onPressed: () async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.remove('device_number');
+                if (!context.mounted) return;
+                Navigator.pop(context);
+                _load();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('기기 번호가 삭제됐어요')),
+                );
+              },
+              child: const Text('삭제', style: TextStyle(color: Colors.red)),
+            ),
+          ElevatedButton(
+            onPressed: () async {
+              final num = int.tryParse(ctrl.text);
+              if (num == null || num < 0 || num > 999) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('000 ~ 999 사이로 입력해주세요')),
+                );
+                return;
+              }
+              final formatted = num.toString().padLeft(3, '0');
+              final prefs = await SharedPreferences.getInstance();
+              final oldNumber = prefs.getString('device_number');
+
+              // 먼저 로컬에 저장 (Supabase에서 user_id로 사용하기 위해)
+              await prefs.setString('device_number', formatted);
+
+              // Supabase에서 중복 체크
+              try {
+                final svc = SupabaseSyncService(database);
+                final ok = await svc.registerDeviceNumber(formatted, oldNumber: oldNumber);
+                if (!ok) {
+                  // 중복이면 이전 값으로 복원
+                  if (oldNumber != null) {
+                    await prefs.setString('device_number', oldNumber);
+                  } else {
+                    await prefs.remove('device_number');
+                  }
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('$formatted번은 이미 다른 기기에서 사용 중이에요'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('등록 실패: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+
+              if (!context.mounted) return;
+              Navigator.pop(context);
+              _load();
+              // 기기 번호 변경 → 전체 데이터를 새 user_id로 업로드
+              ref.read(initialSyncProvider.notifier).forcePushAll();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('기기 번호 $formatted번이 저장됐어요'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            },
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isSet = _deviceId != null && _deviceId!.isNotEmpty;
+
+    return ListTile(
+      leading: Icon(
+        Icons.phone_android,
+        color: isSet ? Theme.of(context).colorScheme.primary : Colors.grey,
+      ),
+      title: const Text('기기 번호'),
+      subtitle: Text(
+        isSet ? '${_deviceId}번' : '미설정 — 탭하여 입력',
+        style: TextStyle(
+          color: isSet ? Theme.of(context).colorScheme.primary : Colors.orange,
+          fontSize: 12,
+        ),
+      ),
+      trailing: Icon(
+        isSet ? Icons.check_circle : Icons.warning_amber,
+        color: isSet ? Colors.green : Colors.orange,
+        size: 20,
+      ),
+      onTap: _showEditDialog,
+    );
+  }
+}
+
 class _ThemeSettingTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(appThemeModeProvider);
 
-    return Column(
+    final labels = {
+      ThemeMode.system: '시스템 설정 따름',
+      ThemeMode.light: '라이트 모드',
+      ThemeMode.dark: '다크 모드',
+    };
+
+    return ExpansionTile(
+      leading: const Icon(Icons.palette_outlined),
+      title: Text('테마',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.bold)),
+      subtitle: Text(labels[themeMode] ?? '',
+          style: const TextStyle(fontSize: 12)),
       children: [
         RadioListTile<ThemeMode>(
           title: const Text('시스템 설정 따름'),

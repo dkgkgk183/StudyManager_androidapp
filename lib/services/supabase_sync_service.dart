@@ -1,27 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 import '../database/database.dart';
 import 'package:drift/drift.dart' as drift;
 
-// ─────────────────────────────────────────────────────────────
-// pubspec.yaml에 추가 필요:
-//   uuid: ^4.4.0
-// ─────────────────────────────────────────────────────────────
+const String _kDeviceId = 'device_number';
 
-const String _kDeviceId = 'device_id';
-
-/// 기기 고유 ID를 SharedPreferences에 저장/조회.
-/// 로그인 없이도 기기별 데이터 격리에 사용.
+/// 기기 고유 번호(000~999)를 SharedPreferences에서 조회.
 Future<String> getOrCreateDeviceId() async {
   final prefs = await SharedPreferences.getInstance();
-  var id = prefs.getString(_kDeviceId);
-  if (id == null) {
-    id = const Uuid().v4();
-    await prefs.setString(_kDeviceId, id);
-  }
-  return id;
+  return prefs.getString(_kDeviceId) ?? '';
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -31,6 +19,32 @@ class SupabaseSyncService {
   final AppDatabase _db;
 
   SupabaseSyncService(this._db);
+
+  // ── 기기 번호 등록 / 중복 체크 ────────────────────────────
+
+  /// 기기 번호를 Supabase에 등록. 이전 번호는 폐기. 이미 사용 중이면 false.
+  Future<bool> registerDeviceNumber(String number, {String? oldNumber}) async {
+    // 이전 번호 삭제
+    if (oldNumber != null && oldNumber.isNotEmpty) {
+      await _supabase
+          .from('device_registrations')
+          .delete()
+          .eq('device_number', oldNumber);
+    }
+    // 새 번호 중복 체크
+    final existing = await _supabase
+        .from('device_registrations')
+        .select('device_number')
+        .eq('device_number', number)
+        .maybeSingle();
+    if (existing != null) {
+      return false;
+    }
+    await _supabase.from('device_registrations').upsert({
+      'device_number': number,
+    });
+    return true;
+  }
 
   // ── Supabase 헤더에 user_id 주입 ─────────────────────────
   // RLS 정책이 current_setting('app.user_id') 로 필터링하므로

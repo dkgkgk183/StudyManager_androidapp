@@ -12,8 +12,8 @@ import '../../services/api_key_service.dart';
 import '../../database/database.dart';
 import '../../main.dart' show database;
 
-const String _baseUrl =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=';
+const String _baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
+const String _modelName = 'deepseek/deepseek-v4-flash';
 
 const String _kPrefMessages = 'pref_chat_messages';
 const String _kPrefHistory  = 'pref_chat_history';
@@ -651,7 +651,7 @@ $categoryCtx
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('설정 탭에서 Gemini API 키를 먼저 입력해주세요'),
+            content: Text('설정 탭에서 OpenRouter API 키를 먼저 입력해주세요'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -679,19 +679,33 @@ $categoryCtx
     currentHistory.add({'role': 'user', 'parts': [{'text': text}]});
 
     try {
+      // OpenAI 호환 형식으로 변환
+      final openAiMessages = <Map<String, dynamic>>[];
+      openAiMessages.add({'role': 'system', 'content': systemPrompt});
+      for (final msg in currentHistory) {
+        openAiMessages.add({
+          'role': msg['role'] == 'model' ? 'assistant' : 'user',
+          'content': (msg['parts'] as List).first['text'],
+        });
+      }
+
       final response = await http.post(
-        Uri.parse('$_baseUrl$apiKey'),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse(_baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $apiKey',
+        },
         body: jsonEncode({
-          'system_instruction': {'parts': [{'text': systemPrompt}]},
-          'contents': currentHistory,
-          'generationConfig': {'temperature': 0.7, 'maxOutputTokens': 8192},
+          'model': _modelName,
+          'messages': openAiMessages,
+          'temperature': 0.7,
+          'max_tokens': 8192,
         }),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
-        final rawText = data['candidates'][0]['content']['parts'][0]['text'] as String;
+        final rawText = data['choices'][0]['message']['content'] as String;
 
         final plans = isPlan ? _extractPlans(rawText) : null;
         final displayText = _stripJsonBlock(rawText);
@@ -912,7 +926,7 @@ $categoryCtx
                 children: [
                   Icon(Icons.warning_amber, color: Colors.orange, size: 18),
                   SizedBox(width: 8),
-                  Expanded(child: Text('API 키가 없어요. 설정 탭에서 Gemini API 키를 입력해주세요.',
+                  Expanded(child: Text('API 키가 없어요. 설정 탭에서 OpenRouter API 키를 입력해주세요.',
                       style: TextStyle(fontSize: 12, color: Colors.deepOrange))),
                 ],
               ),

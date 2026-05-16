@@ -12,7 +12,8 @@
       "Bash(xxd -r -p)",
       "Bash(flutter test:*)",
       "Bash(find /d/AndroidStudioProjects/study_manager -name *test*.dart -o -name *_test.dart)",
-      "Bash(find . -name settings* -type f)"
+      "Bash(find . -name settings* -type f)",
+      "Bash(flutter pub:*)"
     ]
   }
 }
