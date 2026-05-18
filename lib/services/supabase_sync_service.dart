@@ -20,6 +20,18 @@ class SupabaseSyncService {
 
   SupabaseSyncService(this._db);
 
+  // ── NFC 상태 조회 ──────────────────────────────────────────
+
+  /// 해당 기기 번호의 nfc_id를 반환. 없으면 null.
+  Future<String?> fetchNfcId(String deviceNumber) async {
+    final row = await _supabase
+        .from('device_registrations')
+        .select('nfc_id')
+        .eq('device_number', deviceNumber)
+        .maybeSingle();
+    return row?['nfc_id'] as String?;
+  }
+
   // ── 기기 번호 등록 / 중복 체크 ────────────────────────────
 
   /// 기기 번호를 Supabase에 등록. 이전 번호는 폐기. 이미 사용 중이면 false.

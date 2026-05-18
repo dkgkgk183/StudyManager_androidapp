@@ -84,15 +84,7 @@ class SettingsTab extends ConsumerWidget {
 
           const Divider(height: 32),
 
-          // ── 기기 번호 섹션 ────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text('기기 번호',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold)),
-          ),
+          // ── 기기 관리 섹션 ────────────────────────────
           _DeviceIdTile(),
 
           const Divider(height: 32),
@@ -704,6 +696,9 @@ class _DeviceIdTile extends ConsumerStatefulWidget {
 
 class _DeviceIdTileState extends ConsumerState<_DeviceIdTile> {
   String? _deviceId;
+  String? _nfcId;
+  bool _nfcLoading = true;
+  bool get _nfcActive => _nfcId != null && _nfcId!.isNotEmpty;
 
   @override
   void initState() {
@@ -713,7 +708,21 @@ class _DeviceIdTileState extends ConsumerState<_DeviceIdTile> {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() => _deviceId = prefs.getString('device_number'));
+    final id = prefs.getString('device_number');
+    setState(() {
+      _deviceId = id;
+      _nfcLoading = true;
+    });
+    if (id != null && id.isNotEmpty) {
+      try {
+        final nfc = await SupabaseSyncService(database).fetchNfcId(id);
+        if (mounted) setState(() { _nfcId = nfc; _nfcLoading = false; });
+      } catch (_) {
+        if (mounted) setState(() => _nfcLoading = false);
+      }
+    } else {
+      setState(() => _nfcLoading = false);
+    }
   }
 
   void _showEditDialog() {
@@ -846,25 +855,73 @@ class _DeviceIdTileState extends ConsumerState<_DeviceIdTile> {
   Widget build(BuildContext context) {
     final isSet = _deviceId != null && _deviceId!.isNotEmpty;
 
-    return ListTile(
-      leading: Icon(
-        Icons.phone_android,
-        color: isSet ? Theme.of(context).colorScheme.primary : Colors.grey,
-      ),
-      title: const Text('기기 번호'),
+    return ExpansionTile(
+      leading: const Icon(Icons.phone_android),
+      title: Text('기기 관리',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.bold)),
       subtitle: Text(
-        isSet ? '${_deviceId}번' : '미설정 — 탭하여 입력',
-        style: TextStyle(
-          color: isSet ? Theme.of(context).colorScheme.primary : Colors.orange,
-          fontSize: 12,
+        isSet ? '기기 번호: $_deviceId' : '미설정',
+        style: const TextStyle(fontSize: 12),
+      ),
+      children: [
+        // ── 기기 번호 ──
+        ListTile(
+          leading: Icon(
+            Icons.tag,
+            color: isSet
+                ? Theme.of(context).colorScheme.primary
+                : Colors.grey,
+          ),
+          title: const Text('기기 번호'),
+          subtitle: Text(
+            isSet ? '${_deviceId}번' : '탭하여 입력',
+            style: TextStyle(
+              color: isSet
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.orange,
+              fontSize: 12,
+            ),
+          ),
+          trailing: Icon(
+            isSet ? Icons.check_circle : Icons.warning_amber,
+            color: isSet ? Colors.green : Colors.orange,
+            size: 20,
+          ),
+          onTap: _showEditDialog,
         ),
-      ),
-      trailing: Icon(
-        isSet ? Icons.check_circle : Icons.warning_amber,
-        color: isSet ? Colors.green : Colors.orange,
-        size: 20,
-      ),
-      onTap: _showEditDialog,
+        // ── NFC 상태 ──
+        ListTile(
+          leading: Icon(
+            Icons.nfc,
+            color: _nfcActive ? Colors.green : Colors.grey,
+          ),
+          title: const Text('NFC 상태'),
+          subtitle: _nfcLoading
+              ? const Text('확인 중...',
+                  style: TextStyle(fontSize: 12, color: Colors.grey))
+              : Text(
+                  _nfcActive ? '활성화 — ${_nfcId!.length > 16 ? '${_nfcId!.substring(0, 16)}...' : _nfcId}' : '비활성화',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _nfcActive ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+          trailing: _nfcLoading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : Icon(
+                  _nfcActive ? Icons.check_circle : Icons.cancel,
+                  color: _nfcActive ? Colors.green : Colors.red,
+                  size: 20,
+                ),
+        ),
+      ],
     );
   }
 }
