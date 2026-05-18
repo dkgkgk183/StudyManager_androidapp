@@ -5,9 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../services/api_key_service.dart';
 import '../../services/supabase_sync_service.dart';
+import '../../viewmodels/sync_provider.dart';
 import '../../database/database.dart';
 import '../../main.dart';
-import '../../viewmodels/sync_provider.dart';
 import '../../viewmodels/ui_state.dart';
 
 const List<String> _presetColors = [
@@ -77,10 +77,6 @@ class SettingsTab extends ConsumerWidget {
 
           // ── 테마 설정 섹션 ────────────────────────────────────
           _ThemeSettingTile(),
-
-          const Divider(height: 32),
-
-          _SyncTile(),
 
           const Divider(height: 32),
 
@@ -606,89 +602,6 @@ class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
   }
 }
 
-class _SyncTile extends ConsumerWidget {
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final syncAsync = ref.watch(initialSyncProvider);
-    final isLoading = syncAsync.isLoading;
-
-    return ExpansionTile(
-      leading: const Icon(Icons.cloud_outlined),
-      title: Text('클라우드 동기화',
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(fontWeight: FontWeight.bold)),
-      children: [
-        ListTile(
-          leading: const Icon(Icons.cloud_upload_outlined),
-          title: const Text('데이터 백업'),
-          subtitle: const Text('현재 기기의 모든 데이터를 클라우드에 업로드'),
-          trailing: isLoading
-              ? const SizedBox(
-              width: 20, height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.chevron_right),
-          onTap: isLoading ? null : () async {
-            final result = await ref
-                .read(initialSyncProvider.notifier)
-                .forcePushAll();
-            if (!context.mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(result.success
-                  ? '${result.count}개 항목 백업 완료 ✅'
-                  : '백업 실패: ${result.error}'),
-              backgroundColor:
-              result.success ? Colors.green : Colors.red,
-            ));
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.cloud_download_outlined),
-          title: const Text('데이터 복원'),
-          subtitle: const Text('클라우드 데이터를 현재 기기로 가져오기'),
-          trailing: isLoading
-              ? const SizedBox(
-              width: 20, height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.chevron_right),
-          onTap: isLoading ? null : () async {
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('데이터 복원'),
-                content: const Text(
-                    'Supabase의 데이터를 이 기기로 가져옵니다.\n'
-                        '중복 항목은 자동으로 병합됩니다.'),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('취소')),
-                  ElevatedButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('복원')),
-                ],
-              ),
-            );
-            if (confirmed != true || !context.mounted) return;
-            final result = await ref
-                .read(initialSyncProvider.notifier)
-                .forcePull();
-            if (!context.mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(result.success
-                  ? '${result.count}개 항목 복원 완료 ✅'
-                  : '복원 실패: ${result.error}'),
-              backgroundColor:
-              result.success ? Colors.green : Colors.red,
-            ));
-          },
-        ),
-      ],
-    );
-  }
-}
-
 class _DeviceIdTile extends ConsumerStatefulWidget {
   @override
   ConsumerState<_DeviceIdTile> createState() => _DeviceIdTileState();
@@ -704,7 +617,16 @@ class _DeviceIdTileState extends ConsumerState<_DeviceIdTile> {
   void initState() {
     super.initState();
     _load();
+    nfcRefreshNotifier.addListener(_onSyncRefresh);
   }
+
+  @override
+  void dispose() {
+    nfcRefreshNotifier.removeListener(_onSyncRefresh);
+    super.dispose();
+  }
+
+  void _onSyncRefresh() => _load();
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();

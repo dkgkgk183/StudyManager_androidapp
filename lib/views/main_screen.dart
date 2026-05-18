@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../viewmodels/ui_state.dart';
+import '../viewmodels/sync_provider.dart';
 import 'tabs/today_tab.dart';
 import 'tabs/stats_tab.dart';
 import 'tabs/ai_tab.dart';
@@ -12,6 +13,7 @@ class MainScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedIndex = ref.watch(tabIndexProvider);
+    ref.watch(initialSyncProvider); // RealtimeSyncManager 시작용
 
     const tabs = [
       AiTab(),
