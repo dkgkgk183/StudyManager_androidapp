@@ -70,8 +70,7 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     final selectedDate = ref.watch(selectedDateProvider);
     final plansAsync = ref.watch(studyPlanViewModelProvider(selectedDate));
     final sessionsAsync = ref.watch(studySessionViewModelProvider(selectedDate));
-    final today = DateTime(
-        DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    final today = toStudyDate(DateTime.now());
     final days = _weekDays;
 
     // 주간 바에서 보이는 달 기준으로 계획 날짜 조회 (첫 번째 날 기준)
@@ -594,7 +593,7 @@ class _MonthCalendarDialogState extends State<_MonthCalendarDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    final today = toStudyDate(DateTime.now());
     final firstDay = DateTime(_displayMonth.year, _displayMonth.month, 1);
     // 달력 시작: 해당 월 1일의 요일 맞추기 (월=1 기준)
     final startOffset = firstDay.weekday - 1; // 0=월, 6=일

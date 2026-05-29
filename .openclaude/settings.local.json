@@ -13,7 +13,10 @@
       "Bash(flutter test:*)",
       "Bash(find /d/AndroidStudioProjects/study_manager -name *test*.dart -o -name *_test.dart)",
       "Bash(find . -name settings* -type f)",
-      "Bash(flutter pub:*)"
+      "Bash(flutter pub:*)",
+      "WebFetch(domain:hermes-agent.nousresearch.com)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(flutter build:*)"
     ]
   }
 }

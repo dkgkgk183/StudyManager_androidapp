@@ -23,6 +23,7 @@ dependencies:
   wakelock_plus: ^1.2.8
   speech_to_text: ^7.0.0
   supabase_flutter: ^2.12.2
+  flutter_markdown: ^0.7.7
 
 dev_dependencies:
   flutter_test:

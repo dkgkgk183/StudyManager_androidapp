@@ -6,6 +6,25 @@ import 'package:path/path.dart' as p;
 
 part 'database.g.dart';
 
+// ── 오전 6시 기준 하루 경계 헬퍼 ──────────────────────────
+const int _dayBoundaryHour = 6; // 오전 6시
+
+DateTime studyDayStart(DateTime calendarDate) =>
+    DateTime(calendarDate.year, calendarDate.month, calendarDate.day, _dayBoundaryHour);
+
+DateTime studyDayEnd(DateTime calendarDate) =>
+    studyDayStart(calendarDate).add(const Duration(days: 1));
+
+/// 임의 DateTime이 속하는 "공부일"의 달력 날짜 반환
+/// (06:00 이전 → 전날)
+DateTime toStudyDate(DateTime dt) {
+  if (dt.hour < _dayBoundaryHour) {
+    final d = DateTime(dt.year, dt.month, dt.day);
+    return d.subtract(const Duration(days: 1));
+  }
+  return DateTime(dt.year, dt.month, dt.day);
+}
+
 // ── 카테고리 테이블 (학교공부, 자격증 등) ──────────────────
 class SubjectCategories extends Table {
   TextColumn get id => text()();
@@ -140,8 +159,8 @@ class AppDatabase extends _$AppDatabase {
       (select(studyPlans)..orderBy([(t) => OrderingTerm(expression: t.targetDate)])).get();
 
   Future<List<StudyPlan>> getPlansByDate(DateTime date) {
-    final start = DateTime(date.year, date.month, date.day);
-    final end = start.add(const Duration(days: 1));
+    final start = studyDayStart(date);
+    final end = studyDayEnd(date);
     return (select(studyPlans)
       ..where((t) => t.targetDate.isBiggerOrEqualValue(start) &
       t.targetDate.isSmallerThanValue(end))
@@ -161,8 +180,8 @@ class AppDatabase extends _$AppDatabase {
 
   // ── 특정 날짜의 계획 전체 삭제 ───────────────────────
   Future<int> deletePlansByDate(DateTime date) {
-    final start = DateTime(date.year, date.month, date.day);
-    final end = start.add(const Duration(days: 1));
+    final start = studyDayStart(date);
+    final end = studyDayEnd(date);
     return (delete(studyPlans)
       ..where((t) =>
       t.targetDate.isBiggerOrEqualValue(start) &
@@ -172,15 +191,16 @@ class AppDatabase extends _$AppDatabase {
 
   // ── 특정 월의 계획이 존재하는 날짜 Set 반환 ──────────
   Future<Set<DateTime>> getPlanDatesInMonth(int year, int month) async {
-    final start = DateTime(year, month, 1);
-    final end = DateTime(year, month + 1, 1);
+    // 6시 기준: 월의 시작은 1일 06:00, 월의 끝은 (다음달 1일 +1일) 06:00
+    final start = studyDayStart(DateTime(year, month, 1));
+    final end = studyDayStart(DateTime(year, month + 1, 1)).add(const Duration(days: 1));
     final plans = await (select(studyPlans)
       ..where((t) =>
       t.targetDate.isBiggerOrEqualValue(start) &
       t.targetDate.isSmallerThanValue(end)))
         .get();
     return plans
-        .map((p) => DateTime(p.targetDate.year, p.targetDate.month, p.targetDate.day))
+        .map((p) => toStudyDate(p.targetDate))
         .toSet();
   }
 
@@ -194,8 +214,8 @@ class AppDatabase extends _$AppDatabase {
           .get();
 
   Future<List<StudySession>> getSessionsByDate(DateTime date) {
-    final start = DateTime(date.year, date.month, date.day);
-    final end = start.add(const Duration(days: 1));
+    final start = studyDayStart(date);
+    final end = studyDayEnd(date);
     return (select(studySessions)
       ..where((t) => t.startTime.isBiggerOrEqualValue(start) &
       t.startTime.isSmallerThanValue(end)))
@@ -234,8 +254,8 @@ class AppDatabase extends _$AppDatabase {
 
   // ── 조인 쿼리 ─────────────────────────────────────────
   Selectable<TypedResult> getPlansWithSubject(DateTime date) {
-    final start = DateTime(date.year, date.month, date.day);
-    final end = start.add(const Duration(days: 1));
+    final start = studyDayStart(date);
+    final end = studyDayEnd(date);
     return (select(studyPlans).join([
       innerJoin(subjects, subjects.id.equalsExp(studyPlans.subjectId)),
     ])
@@ -245,8 +265,8 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Selectable<TypedResult> getSessionsWithSubject(DateTime date) {
-    final start = DateTime(date.year, date.month, date.day);
-    final end = start.add(const Duration(days: 1));
+    final start = studyDayStart(date);
+    final end = studyDayEnd(date);
     return (select(studySessions).join([
       innerJoin(subjects, subjects.id.equalsExp(studySessions.subjectId)),
     ])

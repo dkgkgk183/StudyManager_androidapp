@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../services/api_key_service.dart';
@@ -85,15 +86,16 @@ class SettingsTab extends ConsumerWidget {
 
           const Divider(height: 32),
 
-          // ── OpenRouter API 키 섹션 ────────────────────────────
+          // ── AI 설정 섹션 ────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text('OpenRouter API',
+            child: Text('AI 설정',
                 style: Theme.of(context)
                     .textTheme
                     .titleMedium
                     ?.copyWith(fontWeight: FontWeight.bold)),
           ),
+          _OpenRouterApiKeyTile(),
           _ApiKeyTile(),
 
           const SizedBox(height: 40),
@@ -473,44 +475,54 @@ Color _colorFromHex(String hex) {
   }
 }
 
-// ── API 키 입력 타일 ──────────────────────────────────────
-// settings_tab.dart 맨 아래에 붙여넣기
-class _ApiKeyTile extends ConsumerStatefulWidget {
+// ── OpenRouter API 키 타일 ────────────────────────────────
+class _OpenRouterApiKeyTile extends ConsumerStatefulWidget {
   @override
-  ConsumerState<_ApiKeyTile> createState() => _ApiKeyTileState();
+  ConsumerState<_OpenRouterApiKeyTile> createState() =>
+      _OpenRouterApiKeyTileState();
 }
 
-class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
-  void _showEditDialog(String? currentKey) {
-    final ctrl = TextEditingController(text: currentKey ?? '');
-    bool obscure = true;
+class _OpenRouterApiKeyTileState
+    extends ConsumerState<_OpenRouterApiKeyTile> {
+  void _showEditDialog() {
+    final currentKey = ref.read(openRouterApiKeyProvider).valueOrNull;
+    final currentModel =
+        ref.read(openRouterModelProvider).valueOrNull ?? defaultOpenRouterModel;
+    final keyCtrl = TextEditingController(text: currentKey ?? '');
+    final modelCtrl = TextEditingController(text: currentModel);
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('OpenRouter API 키 설정'),
+          title: const Text('OpenRouter 설정'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'OpenRouter에서 발급받은 API 키를 입력하세요.\n키는 기기에만 저장되며 외부로 전송되지 않아요.',
+                'openrouter.ai 에서 발급받은 API 키를 입력하세요.\n이 키로 AI 계획 생성이 처리돼요.',
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: ctrl,
-                obscureText: obscure,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: '...',
+                controller: keyCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'API Key',
+                  hintText: 'sk-or-v1-...',
                   isDense: true,
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
-                    onPressed: () => setDialogState(() => obscure = !obscure),
-                  ),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: modelCtrl,
+                decoration: const InputDecoration(
+                  labelText: '모델명',
+                  hintText: 'google/gemini-2.5-flash-preview',
+                  isDense: true,
+                  border: OutlineInputBorder(),
                 ),
               ),
             ],
@@ -520,35 +532,198 @@ class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
               onPressed: () => Navigator.pop(context),
               child: const Text('취소'),
             ),
-            if (currentKey != null && currentKey.isNotEmpty)
+            if (currentKey != null)
               TextButton(
                 onPressed: () async {
-                  final success = await ref.read(apiKeyProvider.notifier).delete();
+                  await ref
+                      .read(openRouterApiKeyProvider.notifier)
+                      .delete();
                   if (!context.mounted) return;
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text(success ? 'API 키가 삭제됐어요' : '삭제에 실패했어요'),
-                    backgroundColor: success ? Colors.red : Colors.orange,
-                  ));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('API 키가 삭제됐어요')),
+                  );
                 },
-                child: const Text('삭제', style: TextStyle(color: Colors.red)),
+                child: const Text('삭제',
+                    style: TextStyle(color: Colors.red)),
               ),
             ElevatedButton(
               onPressed: () async {
-                final key = ctrl.text.trim();
+                final key = keyCtrl.text.trim();
                 if (key.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('API 키를 입력해주세요')),
+                    const SnackBar(
+                        content: Text('API 키를 입력해주세요')),
                   );
                   return;
                 }
-                final success = await ref.read(apiKeyProvider.notifier).save(key);
+                final model = modelCtrl.text.trim();
+                await ref
+                    .read(openRouterApiKeyProvider.notifier)
+                    .save(key);
+                await ref
+                    .read(openRouterModelProvider.notifier)
+                    .save(model.isNotEmpty ? model : defaultOpenRouterModel);
                 if (!context.mounted) return;
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content: Text(success ? 'API 키가 저장됐어요 ✅' : '저장에 실패했어요. 다시 시도해주세요'),
-                  backgroundColor: success ? Colors.green : Colors.red,
-                ));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('설정이 저장됐어요'),
+                      backgroundColor: Colors.green),
+                );
+              },
+              child: const Text('저장'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _maskKey(String key) {
+    if (key.length <= 12) return key;
+    return '${key.substring(0, 10)}...${key.substring(key.length - 4)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final apiKeyAsync = ref.watch(openRouterApiKeyProvider);
+    final modelAsync = ref.watch(openRouterModelProvider);
+
+    return apiKeyAsync.when(
+      data: (key) {
+        final isSet = key != null && key.isNotEmpty;
+        final model = modelAsync.valueOrNull ?? defaultOpenRouterModel;
+
+        return ListTile(
+          leading: Icon(Icons.vpn_key,
+              color: isSet ? Colors.green : Colors.grey),
+          title: const Text('OpenRouter 설정'),
+          subtitle: Text(
+            isSet ? '${_maskKey(key)}\n$model' : '미설정 — 탭하여 설정',
+            style: TextStyle(
+              color: isSet ? Colors.green : Colors.orange,
+              fontSize: 12,
+            ),
+          ),
+          isThreeLine: isSet,
+          trailing: Icon(
+            isSet ? Icons.check_circle : Icons.warning_amber,
+            color: isSet ? Colors.green : Colors.orange,
+            size: 20,
+          ),
+          onTap: () => _showEditDialog(),
+        );
+      },
+      loading: () => const ListTile(
+        leading: Icon(Icons.vpn_key),
+        title: Text('OpenRouter 설정'),
+        subtitle: Text('불러오는 중...'),
+      ),
+      error: (e, _) => ListTile(
+        leading: const Icon(Icons.vpn_key, color: Colors.red),
+        title: const Text('OpenRouter 설정'),
+        subtitle: const Text('탭하여 설정'),
+        onTap: () => _showEditDialog(),
+      ),
+    );
+  }
+}
+
+// ── Hermes Agent 서버 설정 타일 ───────────────────────────
+class _ApiKeyTile extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_ApiKeyTile> createState() => _ApiKeyTileState();
+}
+
+class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
+  void _showEditDialog() {
+    final currentUrl = ref.read(serverUrlProvider).valueOrNull ?? 'http://localhost:8642';
+    final urlCtrl = TextEditingController(text: currentUrl);
+    bool testing = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Hermes Agent 서버 설정'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '서버 URL을 입력하세요.\nAPI 키와 모델은 서버에서 관리돼요.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: urlCtrl,
+                decoration: const InputDecoration(
+                  labelText: '서버 URL',
+                  hintText: 'https://your-server.ngrok-free.dev',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: testing
+                      ? null
+                      : () async {
+                          setDialogState(() => testing = true);
+                          final url = urlCtrl.text.trim().replaceAll(RegExp(r'/+$'), '');
+                          try {
+                            final uri = Uri.parse('$url/health');
+                            final resp = await http.get(uri)
+                                .timeout(const Duration(seconds: 5));
+                            if (!context.mounted) return;
+                            final ok = resp.statusCode == 200;
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(ok ? '서버 연결 성공' : '서버 응답: ${resp.statusCode}'),
+                              backgroundColor: ok ? Colors.green : Colors.red,
+                            ));
+                          } catch (e) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text('연결 실패: $e'),
+                              backgroundColor: Colors.red,
+                            ));
+                          } finally {
+                            setDialogState(() => testing = false);
+                          }
+                        },
+                  icon: testing
+                      ? const SizedBox(width: 16, height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.wifi_find, size: 18),
+                  label: Text(testing ? '테스트 중...' : '연결 테스트'),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final url = urlCtrl.text.trim().replaceAll(RegExp(r'/+$'), '');
+                if (url.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('서버 URL을 입력해주세요')),
+                  );
+                  return;
+                }
+                await ref.read(serverUrlProvider.notifier).save(url);
+                if (!context.mounted) return;
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('설정이 저장됐어요'), backgroundColor: Colors.green),
+                );
               },
               child: const Text('저장'),
             ),
@@ -560,43 +735,40 @@ class _ApiKeyTileState extends ConsumerState<_ApiKeyTile> {
 
   @override
   Widget build(BuildContext context) {
-    final apiKeyAsync = ref.watch(apiKeyProvider);
+    final serverUrlAsync = ref.watch(serverUrlProvider);
 
-    return apiKeyAsync.when(
-      data: (key) {
-        final isSet = key != null && key.isNotEmpty;
-        final maskedKey = isSet && key.length >= 8
-            ? '${key.substring(0, 4)}${'*' * (key.length - 8)}${key.substring(key.length - 4)}'
-            : key;
+    return serverUrlAsync.when(
+      data: (url) {
+        final urlSet = url.isNotEmpty && url != 'http://localhost:8642';
 
         return ListTile(
-          leading: Icon(Icons.key, color: isSet ? Colors.green : Colors.grey),
-          title: const Text('API 키'),
+          leading: Icon(Icons.dns, color: urlSet ? Colors.green : Colors.grey),
+          title: const Text('Hermes Agent 서버'),
           subtitle: Text(
-            isSet ? maskedKey! : '미설정 — 탭하여 입력',
+            urlSet ? url : '미설정 — 탭하여 설정',
             style: TextStyle(
-              color: isSet ? Colors.green : Colors.orange,
+              color: urlSet ? Colors.green : Colors.orange,
               fontSize: 12,
             ),
           ),
           trailing: Icon(
-            isSet ? Icons.check_circle : Icons.warning_amber,
-            color: isSet ? Colors.green : Colors.orange,
+            urlSet ? Icons.check_circle : Icons.warning_amber,
+            color: urlSet ? Colors.green : Colors.orange,
             size: 20,
           ),
-          onTap: () => _showEditDialog(key),
+          onTap: () => _showEditDialog(),
         );
       },
       loading: () => const ListTile(
-        leading: Icon(Icons.key),
-        title: Text('API 키'),
+        leading: Icon(Icons.dns),
+        title: Text('Hermes Agent 서버'),
         subtitle: Text('불러오는 중...'),
       ),
       error: (e, _) => ListTile(
-        leading: const Icon(Icons.key, color: Colors.red),
-        title: const Text('API 키'),
-        subtitle: const Text('탭하여 입력'),
-        onTap: () => _showEditDialog(null),
+        leading: const Icon(Icons.dns, color: Colors.red),
+        title: const Text('Hermes Agent 서버'),
+        subtitle: const Text('탭하여 설정'),
+        onTap: () => _showEditDialog(),
       ),
     );
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,14 +7,12 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../viewmodels/ui_state.dart';
 import '../../services/api_key_service.dart';
 import '../../database/database.dart';
 import '../../main.dart' show database;
-
-const String _baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
-const String _modelName = 'deepseek/deepseek-v4-flash';
 
 const String _kPrefMessages = 'pref_chat_messages';
 const String _kPrefHistory  = 'pref_chat_history';
@@ -67,10 +66,12 @@ class _DateRange {
 // ── 채팅 메시지 모델 ──────────────────────────────────────
 class _ChatMessage {
   final bool isAi;
-  final String text;
-  final bool isError;
-  final List<_PlanData>? plans;
+  String text;
+  bool isError;
+  List<_PlanData>? plans;
   bool plansAdded;
+  bool isStreaming;
+  String? toolStatus;
 
   _ChatMessage({
     required this.isAi,
@@ -78,6 +79,8 @@ class _ChatMessage {
     this.isError = false,
     this.plans,
     this.plansAdded = false,
+    this.isStreaming = false,
+    this.toolStatus,
   });
 }
 
@@ -589,6 +592,12 @@ class _AiTabState extends ConsumerState<AiTab> {
 한국어로 대화해줘.
 $categoryCtx
 
+[날짜 기준]
+이 앱에서는 오전 6시를 기준으로 하루가 시작돼.
+- "5월 29일"은 5월 29일 06:00 ~ 5월 30일 05:59까지야.
+- 새벽 시간(00:00~05:59)에 공부할 계획이 있으면 전날 날짜로 지정해줘.
+  예: 새벽 2시에 공부할 계획 → date는 전날 날짜
+
 [중요 규칙]
 사용자가 공부 계획 생성을 요청하면:
 1. 자연스러운 한국어 존댓말로 계획을 설명해줘.
@@ -627,6 +636,9 @@ $categoryCtx
 사용자가 자신의 공부 습관, 취약점, 선호 시간대 등을 말하면
 리스트 형태로 정리한 다음 "또 다른 성향이 있나요?" 로 끝내.
 한국어 존댓말로 대화해줘.
+
+사용자가 성향을 말할 때마다 반드시 memory 도구를 사용해서 저장해.
+저장할 때는 제목을 "사용자 학습 성향"으로 하고, 새로운 성향이 나올 때마다 기존 내용에 추가해.
 ''';
 
   @override
@@ -646,19 +658,6 @@ $categoryCtx
     final text = _controller.text.trim();
     if (text.isEmpty || _isLoading) return;
 
-    final apiKey = await ref.read(apiKeyProvider.future);
-    if (apiKey == null || apiKey.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('설정 탭에서 OpenRouter API 키를 먼저 입력해주세요'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-      return;
-    }
-
     final isPlan = _currentSession == AiSession.dailyPlan;
     final currentMessages = isPlan ? _planMessages() : _prefMessages;
     final currentHistory = isPlan ? _planHistory() : _prefHistory;
@@ -669,6 +668,10 @@ $categoryCtx
       systemPrompt = _buildPlanSystemPrompt(categoryList);
     }
 
+    // OpenRouter 키 확인
+    final openRouterKey =
+        await ref.read(openRouterApiKeyProvider.future);
+
     setState(() {
       currentMessages.add(_ChatMessage(isAi: false, text: text));
       _isLoading = true;
@@ -678,68 +681,297 @@ $categoryCtx
 
     currentHistory.add({'role': 'user', 'parts': [{'text': text}]});
 
+    // 스트리밍 응답 버블 추가
+    final aiBubble = _ChatMessage(isAi: true, text: '', isStreaming: true);
+    setState(() => currentMessages.add(aiBubble));
+
+    final StringBuffer buffer = StringBuffer();
+    final client = http.Client();
+
     try {
-      // OpenAI 호환 형식으로 변환
-      final openAiMessages = <Map<String, dynamic>>[];
-      openAiMessages.add({'role': 'system', 'content': systemPrompt});
-      for (final msg in currentHistory) {
-        openAiMessages.add({
-          'role': msg['role'] == 'model' ? 'assistant' : 'user',
-          'content': (msg['parts'] as List).first['text'],
-        });
+      if (openRouterKey != null && openRouterKey.isNotEmpty) {
+        // ── OpenRouter API 호출 ──
+        final openRouterModel =
+            ref.read(openRouterModelProvider).valueOrNull ?? defaultOpenRouterModel;
+        await _sendOpenRouterRequest(
+          client: client,
+          apiKey: openRouterKey,
+          model: openRouterModel,
+          systemPrompt: systemPrompt,
+          text: text,
+          isPlan: isPlan,
+          aiBubble: aiBubble,
+          buffer: buffer,
+          currentMessages: currentMessages,
+        );
+      } else {
+        // ── Hermes Agent 호출 ──
+        final serverUrl = await ref.read(serverUrlProvider.future);
+        final url =
+            '${serverUrl.replaceAll(RegExp(r'/+$'), '')}/v1/responses';
+        await _sendHermesRequest(
+          client: client,
+          url: url,
+          systemPrompt: systemPrompt,
+          text: text,
+          isPlan: isPlan,
+          aiBubble: aiBubble,
+          buffer: buffer,
+          currentMessages: currentMessages,
+        );
       }
 
-      final response = await http.post(
-        Uri.parse(_baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $apiKey',
-        },
-        body: jsonEncode({
-          'model': _modelName,
-          'messages': openAiMessages,
-          'temperature': 0.7,
-          'max_tokens': 8192,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        final rawText = data['choices'][0]['message']['content'] as String;
-
+      // 최종 처리
+      final rawText = buffer.toString();
+      if (rawText.isNotEmpty) {
         final plans = isPlan ? _extractPlans(rawText) : null;
         final displayText = _stripJsonBlock(rawText);
 
-        currentHistory.add({'role': 'model', 'parts': [{'text': rawText}]});
-
         setState(() {
-          currentMessages.add(_ChatMessage(
-            isAi: true,
-            text: displayText,
-            plans: plans,
-          ));
+          aiBubble.text = displayText;
+          aiBubble.plans = plans;
+          aiBubble.isStreaming = false;
+          aiBubble.toolStatus = null;
           _isLoading = false;
         });
+
+        currentHistory.add({'role': 'model', 'parts': [{'text': rawText}]});
         if (isPlan) await _savePlanData();
         else await _savePrefData();
       } else {
-        final error = jsonDecode(utf8.decode(response.bodyBytes));
-        final errorMsg = error['error']?['message'] ?? '알 수 없는 오류';
         setState(() {
-          currentMessages.add(_ChatMessage(isAi: true, text: '오류: $errorMsg', isError: true));
+          aiBubble.isStreaming = false;
+          aiBubble.toolStatus = null;
           _isLoading = false;
         });
-        currentHistory.removeLast();
       }
     } catch (e) {
       setState(() {
-        currentMessages.add(_ChatMessage(isAi: true, text: '네트워크 오류가 발생했어요.', isError: true));
+        aiBubble.text = '네트워크 오류가 발생했어요.';
+        aiBubble.isError = true;
+        aiBubble.isStreaming = false;
+        aiBubble.toolStatus = null;
         _isLoading = false;
       });
       currentHistory.removeLast();
+    } finally {
+      client.close();
     }
 
     _scrollToBottom();
+  }
+
+  /// OpenRouter API 호출
+  Future<void> _sendOpenRouterRequest({
+    required http.Client client,
+    required String apiKey,
+    required String model,
+    required String systemPrompt,
+    required String text,
+    required bool isPlan,
+    required _ChatMessage aiBubble,
+    required StringBuffer buffer,
+    required List<_ChatMessage> currentMessages,
+  }) async {
+    // OpenRouter용 messages 배열 구성
+    final history = isPlan ? _planHistory() : _prefHistory;
+    final messages = <Map<String, String>>[
+      {'role': 'system', 'content': systemPrompt},
+    ];
+    // 대화 히스토리를 OpenAI 형식으로 변환
+    for (final msg in history) {
+      final role = msg['role'] as String;
+      final parts = msg['parts'] as List;
+      final content = parts.isNotEmpty ? parts.first['text'] as String : '';
+      messages.add({
+        'role': role == 'model' ? 'assistant' : role,
+        'content': content,
+      });
+    }
+    messages.add({'role': 'user', 'content': text});
+
+    final request =
+        http.Request('POST', Uri.parse('https://openrouter.ai/api/v1/chat/completions'));
+    request.headers['Content-Type'] = 'application/json';
+    request.headers['Authorization'] = 'Bearer $apiKey';
+    request.body = jsonEncode({
+      'model': model,
+      'messages': messages,
+      'stream': true,
+    });
+
+    final streamedResponse = await client.send(request);
+
+    if (streamedResponse.statusCode != 200) {
+      final body = await streamedResponse.stream.bytesToString();
+      String errorMsg;
+      try {
+        final err = jsonDecode(body);
+        errorMsg = err['error']?['message'] ?? '알 수 없는 오류';
+      } catch (_) {
+        errorMsg = 'HTTP ${streamedResponse.statusCode}';
+      }
+
+      if (!mounted) return;
+      setState(() {
+        aiBubble.text = '오류: $errorMsg';
+        aiBubble.isError = true;
+        aiBubble.isStreaming = false;
+        _isLoading = false;
+      });
+      final history = isPlan ? _planHistory() : _prefHistory;
+      history.removeLast();
+      return;
+    }
+
+    // SSE 스트리밍 파싱 (OpenAI 호환)
+    await streamedResponse.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .forEach((line) {
+      if (line.startsWith('data: ')) {
+        final jsonStr = line.substring(6).trim();
+        if (jsonStr == '[DONE]') return;
+
+        try {
+          final event = jsonDecode(jsonStr);
+          final delta =
+              event['choices']?[0]?['delta']?['content'] as String?;
+          if (delta != null && delta.isNotEmpty) {
+            buffer.write(delta);
+            if (mounted) {
+              setState(() {
+                aiBubble.text = buffer.toString();
+              });
+            }
+          }
+        } catch (_) {}
+      }
+    });
+  }
+
+  /// Hermes Agent 호출
+  Future<void> _sendHermesRequest({
+    required http.Client client,
+    required String url,
+    required String systemPrompt,
+    required String text,
+    required bool isPlan,
+    required _ChatMessage aiBubble,
+    required StringBuffer buffer,
+    required List<_ChatMessage> currentMessages,
+  }) async {
+    final convKey = isPlan ? 'plan_${_rangeKey()}' : 'pref';
+
+    final request = http.Request('POST', Uri.parse(url));
+    request.headers['Content-Type'] = 'application/json';
+    request.body = jsonEncode({
+      'input': text,
+      'instructions': systemPrompt,
+      'conversation': convKey,
+      'stream': true,
+    });
+
+    final streamedResponse = await client.send(request);
+
+    if (streamedResponse.statusCode != 200) {
+      final body = await streamedResponse.stream.bytesToString();
+      String errorMsg;
+      try {
+        final err = jsonDecode(body);
+        errorMsg = err['error']?['message'] ?? '알 수 없는 오류';
+      } catch (_) {
+        errorMsg = 'HTTP ${streamedResponse.statusCode}';
+      }
+
+      if (streamedResponse.statusCode == 401) {
+        errorMsg = '인증 실패 — 서버에서 API_SERVER_KEY를 확인해주세요';
+      }
+
+      if (!mounted) return;
+      setState(() {
+        aiBubble.text = '오류: $errorMsg';
+        aiBubble.isError = true;
+        aiBubble.isStreaming = false;
+        _isLoading = false;
+      });
+      final history = isPlan ? _planHistory() : _prefHistory;
+      history.removeLast();
+      return;
+    }
+
+    // SSE 스트리밍 파싱 (Hermes)
+    await streamedResponse.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .forEach((line) {
+      if (line.startsWith('data: ')) {
+        final jsonStr = line.substring(6).trim();
+        if (jsonStr == '[DONE]') return;
+
+        try {
+          final event = jsonDecode(jsonStr);
+          _handleStreamEvent(event, aiBubble, buffer, currentMessages);
+        } catch (_) {}
+      }
+    });
+  }
+
+  /// SSE 이벤트 처리
+  void _handleStreamEvent(
+    Map<String, dynamic> event,
+    _ChatMessage bubble,
+    StringBuffer buffer,
+    List<_ChatMessage> messages,
+  ) {
+    final type = event['type'] as String?;
+
+    switch (type) {
+      case 'response.output_text.delta':
+        final delta = event['delta'] as String? ?? '';
+        if (delta.isNotEmpty) {
+          buffer.write(delta);
+          setState(() {
+            bubble.text = buffer.toString();
+          });
+        }
+
+      case 'response.output_text.done':
+        // 최종 텍스트로 교체 (서버가 정리한 버전)
+        final finalText = event['text'] as String?;
+        if (finalText != null) {
+          buffer.clear();
+          buffer.write(finalText);
+        }
+
+      case 'hermes.tool.progress':
+        final toolName = event['tool_name'] as String? ?? '';
+        final status = event['status'] as String? ?? '';
+        setState(() {
+          bubble.toolStatus = _formatToolStatus(toolName, status);
+        });
+
+      case 'response.completed':
+        // 스트리밍 완료 — 최종 처리는 _sendMessage에서
+
+      default:
+        // response.created 등 무시
+    }
+  }
+
+  String _formatToolStatus(String toolName, String status) {
+    final names = {
+      'terminal': '명령어 실행 중',
+      'write_to_file': '파일 작성 중',
+      'read_file': '파일 읽는 중',
+      'list_directory': '디렉토리 탐색 중',
+      'search_files': '파일 검색 중',
+      'web_search': '웹 검색 중',
+      'crawl_webpage': '웹페이지 수집 중',
+      'memory': '메모리 접근 중',
+    };
+    final label = names[toolName] ?? '$toolName 실행 중';
+    return '$label${status.isNotEmpty ? " ($status)" : ""}...';
   }
 
   void _scrollToBottom() {
@@ -815,11 +1047,6 @@ $categoryCtx
     final isPlan = _currentSession == AiSession.dailyPlan;
     final currentMessages = isPlan ? _planMessages() : _prefMessages;
     final hasPrefData = _prefHistory.isNotEmpty;
-    final categoryAsync = ref.watch(categoryViewModelProvider);
-    final hasCategories = categoryAsync.valueOrNull
-        ?.any((c) => (c['subjects'] as List).isNotEmpty) ?? false;
-    final apiKeyAsync = ref.watch(apiKeyProvider);
-    final hasApiKey = apiKeyAsync.valueOrNull?.isNotEmpty ?? false;
     final rangeDisplay = _DateRange(start: _rangeStart, end: _rangeEnd).label();
 
     return Scaffold(
@@ -836,134 +1063,73 @@ $categoryCtx
         },
       ),
       appBar: AppBar(
-        title: Text(isPlan ? 'AI 플래너 · $rangeDisplay' : 'AI 플래너'),
+        title: SegmentedButton<AiSession>(
+          segments: [
+            const ButtonSegment(
+              value: AiSession.dailyPlan,
+              icon: Icon(Icons.calendar_today, size: 14),
+              label: Text('계획', style: TextStyle(fontSize: 12)),
+            ),
+            ButtonSegment(
+              value: AiSession.preference,
+              icon: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Icon(Icons.person_outline, size: 14),
+                  if (hasPrefData)
+                    Positioned(
+                      right: -4, top: -4,
+                      child: Container(
+                        width: 7, height: 7,
+                        decoration: const BoxDecoration(
+                            color: Colors.red, shape: BoxShape.circle),
+                      ),
+                    ),
+                ],
+              ),
+              label: const Text('성향', style: TextStyle(fontSize: 12)),
+            ),
+          ],
+          selected: {_currentSession},
+          onSelectionChanged: (val) {
+            setState(() => _currentSession = val.first);
+            _scrollToBottom();
+          },
+          style: ButtonStyle(
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
         // leading은 Drawer가 자동으로 햄버거 버튼 추가
         actions: [
-          if (isPlan)
-            IconButton(
-              icon: const Icon(Icons.date_range, size: 20),
-              tooltip: '기간 선택',
-              onPressed: _pickDateRange,
-            ),
-          if (isPlan && hasCategories)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Chip(
-                label: const Text('과목 연동', style: TextStyle(fontSize: 11)),
-                avatar: const Icon(Icons.folder, size: 14),
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-              ),
-            ),
-          if (isPlan && hasPrefData)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Chip(
-                label: const Text('성향 반영', style: TextStyle(fontSize: 11)),
-                avatar: const Icon(Icons.person, size: 14),
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              ),
-            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: '대화 초기화',
             onPressed: _confirmClearChat,
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(52),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: SegmentedButton<AiSession>(
-              segments: [
-                const ButtonSegment(
-                  value: AiSession.dailyPlan,
-                  icon: Icon(Icons.calendar_today, size: 16),
-                  label: Text('계획'),
-                ),
-                ButtonSegment(
-                  value: AiSession.preference,
-                  icon: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      const Icon(Icons.person_outline, size: 16),
-                      if (hasPrefData)
-                        Positioned(
-                          right: -4, top: -4,
-                          child: Container(
-                            width: 8, height: 8,
-                            decoration: const BoxDecoration(
-                                color: Colors.red, shape: BoxShape.circle),
-                          ),
-                        ),
-                    ],
-                  ),
-                  label: const Text('사용자 성향'),
-                ),
-              ],
-              selected: {_currentSession},
-              onSelectionChanged: (val) {
-                setState(() => _currentSession = val.first);
-                _scrollToBottom();
-              },
-            ),
-          ),
-        ),
       ),
       body: !_isDataLoaded
           ? const Center(child: CircularProgressIndicator())
           : Column(
         children: [
-          if (!hasApiKey)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              color: Colors.orange.shade100,
-              child: const Row(
-                children: [
-                  Icon(Icons.warning_amber, color: Colors.orange, size: 18),
-                  SizedBox(width: 8),
-                  Expanded(child: Text('API 키가 없어요. 설정 탭에서 OpenRouter API 키를 입력해주세요.',
-                      style: TextStyle(fontSize: 12, color: Colors.deepOrange))),
-                ],
-              ),
-            ),
-          if (!isPlan)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: Theme.of(context).colorScheme.tertiaryContainer.withOpacity(0.5),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, size: 14,
-                      color: Theme.of(context).colorScheme.tertiary),
-                  const SizedBox(width: 6),
-                  Expanded(child: Text(
-                    '여기서 나눈 대화는 앱을 꺼도 저장되고, 계획 세션에 자동 반영돼요',
-                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.tertiary),
-                  )),
-                ],
-              ),
-            ),
           if (isPlan)
-            GestureDetector(
+            InkWell(
               onTap: _pickDateRange,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.calendar_month, size: 16,
                         color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 6),
-                    Text('📅 $rangeDisplay — 탭하여 기간 변경',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500,
+                    Text(rangeDisplay,
+                        style: TextStyle(fontSize: 13,
                             color: Theme.of(context).colorScheme.primary)),
+                    const SizedBox(width: 4),
+                    Icon(Icons.edit_calendar, size: 14,
+                        color: Theme.of(context).colorScheme.primary),
                   ],
                 ),
               ),
@@ -995,9 +1161,8 @@ $categoryCtx
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
-              itemCount: currentMessages.length + (_isLoading ? 1 : 0),
+              itemCount: currentMessages.length,
               itemBuilder: (context, index) {
-                if (index == currentMessages.length) return const _TypingIndicator();
                 final message = currentMessages[index];
                 return _ChatBubble(
                   message: message,
@@ -1022,8 +1187,8 @@ $categoryCtx
             hintText: _isListening
                 ? '음성을 텍스트로 변환 중...'
                 : isPlan
-                ? '계획을 말해보세요. 기간을 설정하면 해당 기간의 계획을 세워드려요.'
-                : '공부 성향을 자유롭게 말해보세요...',
+                ? '계획을 말해보세요.'
+                : '공부 성향을 말해보세요.',
           ),
         ],
       ),
@@ -1425,11 +1590,61 @@ class _ChatBubbleState extends State<_ChatBubble> {
                         bottomRight: const Radius.circular(16),
                       ),
                     ),
-                    child: Text(widget.message.text,
-                        style: TextStyle(color: textColor, height: 1.5)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (widget.message.toolStatus != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 12, height: 12,
+                                  child: CircularProgressIndicator(strokeWidth: 1.5, color: textColor),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(widget.message.toolStatus!,
+                                    style: TextStyle(color: textColor.withValues(alpha: 0.6), fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                        if (widget.message.text.isEmpty && widget.message.isStreaming)
+                          SizedBox(
+                            width: 20, height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: textColor),
+                          )
+                        else if (isAi)
+                          MarkdownBody(
+                            data: widget.message.text,
+                            styleSheet: MarkdownStyleSheet(
+                              p: TextStyle(color: textColor, height: 1.5),
+                              strong: TextStyle(color: textColor, height: 1.5, fontWeight: FontWeight.bold),
+                              em: TextStyle(color: textColor, height: 1.5, fontStyle: FontStyle.italic),
+                              code: TextStyle(
+                                color: textColor,
+                                backgroundColor: bubbleColor.withValues(alpha: 0.5),
+                                fontSize: 13,
+                              ),
+                              codeblockDecoration: BoxDecoration(
+                                color: bubbleColor.withValues(alpha: 0.5),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              blockquote: TextStyle(color: textColor.withValues(alpha: 0.7)),
+                              h1: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 20),
+                              h2: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 18),
+                              h3: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16),
+                              listBullet: TextStyle(color: textColor),
+                            ),
+                          )
+                        else
+                          Text(widget.message.text,
+                              style: TextStyle(color: textColor, height: 1.5)),
+                      ],
+                    ),
                   ),
                 ),
-                if (isAi && widget.message.plans != null) ...[
+                if (isAi && widget.message.plans != null && !widget.message.isStreaming) ...[
                   const SizedBox(height: 8),
                   if (widget.plansAdded)
                     Container(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import '../database/database.dart';
 
 part 'ui_state.g.dart';
 
@@ -13,10 +14,7 @@ class TabIndex extends _$TabIndex {
 @Riverpod(keepAlive: true)
 class SelectedDate extends _$SelectedDate {
   @override
-  DateTime build() {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
-  }
+  DateTime build() => toStudyDate(DateTime.now());
 
   void setDate(DateTime date) =>
       state = DateTime(date.year, date.month, date.day);
