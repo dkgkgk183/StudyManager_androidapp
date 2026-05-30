@@ -16,7 +16,8 @@
       "Bash(flutter pub:*)",
       "WebFetch(domain:hermes-agent.nousresearch.com)",
       "Bash(echo \"EXIT: $?\")",
-      "Bash(flutter build:*)"
+      "Bash(flutter build:*)",
+      "Bash(dart run:*)"
     ]
   }
 }

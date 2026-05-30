@@ -6,7 +6,7 @@ part of 'study_view_model.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$categoryViewModelHash() => r'346bd2b7ec2a8800ccc5a5068ecc74b9367dbe3c';
+String _$categoryViewModelHash() => r'83926e7642a07660f351009bdfdfa1479d9ee3a6';
 
 /// See also [CategoryViewModel].
 @ProviderFor(CategoryViewModel)
@@ -26,7 +26,7 @@ final categoryViewModelProvider =
 
 typedef _$CategoryViewModel =
     AutoDisposeAsyncNotifier<List<Map<String, dynamic>>>;
-String _$subjectViewModelHash() => r'6583f75a5affe7efbcc1bd6ec85c7e5f0af99c84';
+String _$subjectViewModelHash() => r'cf7af718630143dffc990acdd05ce76f1d5599a2';
 
 /// See also [SubjectViewModel].
 @ProviderFor(SubjectViewModel)
@@ -43,7 +43,7 @@ final subjectViewModelProvider =
 
 typedef _$SubjectViewModel = AutoDisposeAsyncNotifier<List<Subject>>;
 String _$studyPlanViewModelHash() =>
-    r'350b70734cbf9d4e41e47d59576c75e1ba9536f6';
+    r'fdcd90a7f87cfe2a6c657f71b002fa604ee24233';
 
 /// Copied from Dart SDK
 class _SystemHash {
@@ -209,6 +209,154 @@ class _StudyPlanViewModelProviderElement
 
   @override
   DateTime get date => (origin as StudyPlanViewModelProvider).date;
+}
+
+String _$todayPlanViewModelHash() =>
+    r'5fb8e32f8228c2d485f0e2dbee14f786a620d853';
+
+abstract class _$TodayPlanViewModel
+    extends BuildlessAutoDisposeAsyncNotifier<List<Map<String, dynamic>>> {
+  late final DateTime date;
+
+  FutureOr<List<Map<String, dynamic>>> build(DateTime date);
+}
+
+/// See also [TodayPlanViewModel].
+@ProviderFor(TodayPlanViewModel)
+const todayPlanViewModelProvider = TodayPlanViewModelFamily();
+
+/// See also [TodayPlanViewModel].
+class TodayPlanViewModelFamily
+    extends Family<AsyncValue<List<Map<String, dynamic>>>> {
+  /// See also [TodayPlanViewModel].
+  const TodayPlanViewModelFamily();
+
+  /// See also [TodayPlanViewModel].
+  TodayPlanViewModelProvider call(DateTime date) {
+    return TodayPlanViewModelProvider(date);
+  }
+
+  @override
+  TodayPlanViewModelProvider getProviderOverride(
+    covariant TodayPlanViewModelProvider provider,
+  ) {
+    return call(provider.date);
+  }
+
+  static const Iterable<ProviderOrFamily>? _dependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get dependencies => _dependencies;
+
+  static const Iterable<ProviderOrFamily>? _allTransitiveDependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get allTransitiveDependencies =>
+      _allTransitiveDependencies;
+
+  @override
+  String? get name => r'todayPlanViewModelProvider';
+}
+
+/// See also [TodayPlanViewModel].
+class TodayPlanViewModelProvider
+    extends
+        AutoDisposeAsyncNotifierProviderImpl<
+          TodayPlanViewModel,
+          List<Map<String, dynamic>>
+        > {
+  /// See also [TodayPlanViewModel].
+  TodayPlanViewModelProvider(DateTime date)
+    : this._internal(
+        () => TodayPlanViewModel()..date = date,
+        from: todayPlanViewModelProvider,
+        name: r'todayPlanViewModelProvider',
+        debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+            ? null
+            : _$todayPlanViewModelHash,
+        dependencies: TodayPlanViewModelFamily._dependencies,
+        allTransitiveDependencies:
+            TodayPlanViewModelFamily._allTransitiveDependencies,
+        date: date,
+      );
+
+  TodayPlanViewModelProvider._internal(
+    super._createNotifier, {
+    required super.name,
+    required super.dependencies,
+    required super.allTransitiveDependencies,
+    required super.debugGetCreateSourceHash,
+    required super.from,
+    required this.date,
+  }) : super.internal();
+
+  final DateTime date;
+
+  @override
+  FutureOr<List<Map<String, dynamic>>> runNotifierBuild(
+    covariant TodayPlanViewModel notifier,
+  ) {
+    return notifier.build(date);
+  }
+
+  @override
+  Override overrideWith(TodayPlanViewModel Function() create) {
+    return ProviderOverride(
+      origin: this,
+      override: TodayPlanViewModelProvider._internal(
+        () => create()..date = date,
+        from: from,
+        name: null,
+        dependencies: null,
+        allTransitiveDependencies: null,
+        debugGetCreateSourceHash: null,
+        date: date,
+      ),
+    );
+  }
+
+  @override
+  AutoDisposeAsyncNotifierProviderElement<
+    TodayPlanViewModel,
+    List<Map<String, dynamic>>
+  >
+  createElement() {
+    return _TodayPlanViewModelProviderElement(this);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is TodayPlanViewModelProvider && other.date == date;
+  }
+
+  @override
+  int get hashCode {
+    var hash = _SystemHash.combine(0, runtimeType.hashCode);
+    hash = _SystemHash.combine(hash, date.hashCode);
+
+    return _SystemHash.finish(hash);
+  }
+}
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+mixin TodayPlanViewModelRef
+    on AutoDisposeAsyncNotifierProviderRef<List<Map<String, dynamic>>> {
+  /// The parameter `date` of this provider.
+  DateTime get date;
+}
+
+class _TodayPlanViewModelProviderElement
+    extends
+        AutoDisposeAsyncNotifierProviderElement<
+          TodayPlanViewModel,
+          List<Map<String, dynamic>>
+        >
+    with TodayPlanViewModelRef {
+  _TodayPlanViewModelProviderElement(super.provider);
+
+  @override
+  DateTime get date => (origin as TodayPlanViewModelProvider).date;
 }
 
 String _$studySessionViewModelHash() =>

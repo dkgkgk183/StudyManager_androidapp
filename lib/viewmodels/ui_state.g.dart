@@ -21,7 +21,7 @@ final tabIndexProvider = NotifierProvider<TabIndex, int>.internal(
 );
 
 typedef _$TabIndex = Notifier<int>;
-String _$selectedDateHash() => r'405f9da5ff1e5e1e649f238a61239d85c91774d6';
+String _$selectedDateHash() => r'02f124f4f579ee97673bb73dccd397837f2ed995';
 
 /// See also [SelectedDate].
 @ProviderFor(SelectedDate)
@@ -51,21 +51,5 @@ final appThemeModeProvider = NotifierProvider<AppThemeMode, ThemeMode>.internal(
 );
 
 typedef _$AppThemeMode = Notifier<ThemeMode>;
-String _$activeSessionIdHash() => r'dcdad8a1ccd47192509693d7af366239acde9169';
-
-/// See also [ActiveSessionId].
-@ProviderFor(ActiveSessionId)
-final activeSessionIdProvider =
-    NotifierProvider<ActiveSessionId, String?>.internal(
-      ActiveSessionId.new,
-      name: r'activeSessionIdProvider',
-      debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-          ? null
-          : _$activeSessionIdHash,
-      dependencies: null,
-      allTransitiveDependencies: null,
-    );
-
-typedef _$ActiveSessionId = Notifier<String?>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

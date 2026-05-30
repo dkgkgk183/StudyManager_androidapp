@@ -158,6 +158,32 @@ class AppDatabase extends _$AppDatabase {
   Future<List<StudyPlan>> getAllPlans() =>
       (select(studyPlans)..orderBy([(t) => OrderingTerm(expression: t.targetDate)])).get();
 
+  // DEBUG: 모든 plan의 target_date 확인
+  Future<void> debugAllPlanDates() async {
+    final result = await customSelect(
+      'SELECT id, target_date FROM study_plans ORDER BY target_date',
+    ).get();
+    for (final row in result) {
+      final raw = row.data['target_date'];
+      final id = row.data['id'];
+      final dt = DateTime.fromMillisecondsSinceEpoch((raw as int) * 1000);
+      print('[ALL PLANS] id=$id, raw=$raw, local=$dt, hour=${dt.hour}');
+    }
+  }
+
+  // DEBUG: raw SQL로 target_date 확인
+  Future<void> debugRawTargetDate(String id) async {
+    final result = await customSelect(
+      'SELECT target_date, typeof(target_date) as col_type FROM study_plans WHERE id = ?',
+      variables: [Variable.withString(id)],
+    ).get();
+    for (final row in result) {
+      final raw = row.data['target_date'];
+      final type = row.data['col_type'];
+      print('[DB RAW] id=$id, target_date=$raw, type=$type');
+    }
+  }
+
   Future<List<StudyPlan>> getPlansByDate(DateTime date) {
     final start = studyDayStart(date);
     final end = studyDayEnd(date);
@@ -178,10 +204,10 @@ class AppDatabase extends _$AppDatabase {
       (update(studyPlans)..where((t) => t.id.equals(id)))
           .write(StudyPlansCompanion(isCompleted: Value(completed)));
 
-  // ── 특정 날짜의 계획 전체 삭제 ───────────────────────
+  // ── 특정 날짜의 계획 전체 삭제 (캘린더일 기준) ────────
   Future<int> deletePlansByDate(DateTime date) {
-    final start = studyDayStart(date);
-    final end = studyDayEnd(date);
+    final start = DateTime(date.year, date.month, date.day);
+    final end = start.add(const Duration(days: 1));
     return (delete(studyPlans)
       ..where((t) =>
       t.targetDate.isBiggerOrEqualValue(start) &
@@ -191,16 +217,17 @@ class AppDatabase extends _$AppDatabase {
 
   // ── 특정 월의 계획이 존재하는 날짜 Set 반환 ──────────
   Future<Set<DateTime>> getPlanDatesInMonth(int year, int month) async {
-    // 6시 기준: 월의 시작은 1일 06:00, 월의 끝은 (다음달 1일 +1일) 06:00
-    final start = studyDayStart(DateTime(year, month, 1));
-    final end = studyDayStart(DateTime(year, month + 1, 1)).add(const Duration(days: 1));
+    // 캘린더일 기준: 월의 시작은 1일 00:00, 월의 끝은 다음달 1일 00:00
+    final start = DateTime(year, month, 1);
+    final end = DateTime(year, month + 1, 1);
     final plans = await (select(studyPlans)
       ..where((t) =>
       t.targetDate.isBiggerOrEqualValue(start) &
       t.targetDate.isSmallerThanValue(end)))
         .get();
+    // 캘린더일 기준으로 반환 (toStudyDate 사용 안 함)
     return plans
-        .map((p) => toStudyDate(p.targetDate))
+        .map((p) => DateTime(p.targetDate.year, p.targetDate.month, p.targetDate.day))
         .toSet();
   }
 
@@ -256,6 +283,18 @@ class AppDatabase extends _$AppDatabase {
   Selectable<TypedResult> getPlansWithSubject(DateTime date) {
     final start = studyDayStart(date);
     final end = studyDayEnd(date);
+    return (select(studyPlans).join([
+      innerJoin(subjects, subjects.id.equalsExp(studyPlans.subjectId)),
+    ])
+      ..where(studyPlans.targetDate.isBiggerOrEqualValue(start) &
+      studyPlans.targetDate.isSmallerThanValue(end))
+      ..orderBy([OrderingTerm.asc(studyPlans.createdAt)]));
+  }
+
+  /// 캘린더일 기준(00:00~23:59:59) 쿼리 — 오늘 탭 전용
+  Selectable<TypedResult> getPlansWithSubjectByCalendarDay(DateTime date) {
+    final start = DateTime(date.year, date.month, date.day);
+    final end = start.add(const Duration(days: 1));
     return (select(studyPlans).join([
       innerJoin(subjects, subjects.id.equalsExp(studyPlans.subjectId)),
     ])

@@ -5,7 +5,6 @@ import '../../viewmodels/ui_state.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../database/database.dart';
 import '../../main.dart' show database;
-import '../study_lock_screen.dart';
 
 // ── 월별 계획 날짜 Provider ───────────────────────────────
 final planDatesInMonthProvider =
@@ -68,7 +67,7 @@ class _TodayTabState extends ConsumerState<TodayTab> {
   @override
   Widget build(BuildContext context) {
     final selectedDate = ref.watch(selectedDateProvider);
-    final plansAsync = ref.watch(studyPlanViewModelProvider(selectedDate));
+    final plansAsync = ref.watch(todayPlanViewModelProvider(selectedDate));
     final sessionsAsync = ref.watch(studySessionViewModelProvider(selectedDate));
     final today = toStudyDate(DateTime.now());
     final days = _weekDays;
@@ -381,12 +380,6 @@ class _TodayTabState extends ConsumerState<TodayTab> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () =>
-            _showStartSessionDialog(context, ref, selectedDate),
-        icon: const Icon(Icons.play_arrow),
-        label: const Text('공부 시작'),
-      ),
     );
   }
 
@@ -417,7 +410,7 @@ class _TodayTabState extends ConsumerState<TodayTab> {
 
     if (confirmed != true) return;
     await ref
-        .read(studyPlanViewModelProvider(selectedDate).notifier)
+        .read(todayPlanViewModelProvider(selectedDate).notifier)
         .deleteAllPlansForDate(selectedDate);
 
     // 계획 날짜 캐시 갱신
@@ -463,7 +456,7 @@ class _TodayTabState extends ConsumerState<TodayTab> {
           required String memo,
         }) async {
           await ref
-              .read(studyPlanViewModelProvider(selectedDate).notifier)
+              .read(todayPlanViewModelProvider(selectedDate).notifier)
               .addPlan(
             subjectId: subjectId,
             targetDate: targetDate,
@@ -478,68 +471,6 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     );
   }
 
-  // ── 공부 시작 ─────────────────────────────────────────
-  Future<void> _showStartSessionDialog(
-      BuildContext context, WidgetRef ref, DateTime selectedDate) async {
-    final subjects = await ref.read(subjectViewModelProvider.future);
-    if (!context.mounted) return;
-
-    if (subjects.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('먼저 설정에서 과목을 추가해주세요')),
-      );
-      return;
-    }
-
-    String selectedSubjectId = subjects.first.id;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('공부 시작'),
-          content: DropdownButtonFormField<String>(
-            value: selectedSubjectId,
-            decoration:
-            const InputDecoration(labelText: '과목', isDense: true),
-            items: subjects
-                .map((s) =>
-                DropdownMenuItem(value: s.id, child: Text(s.name)))
-                .toList(),
-            onChanged: (v) => setState(() => selectedSubjectId = v!),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('취소')),
-            ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('시작')),
-          ],
-        ),
-      ),
-    );
-
-    if (confirmed != true || !context.mounted) return;
-
-    final id = await ref
-        .read(studySessionViewModelProvider(selectedDate).notifier)
-        .startSession(subjectId: selectedSubjectId);
-    ref.read(activeSessionIdProvider.notifier).setSession(id);
-
-    final subject =
-    subjects.firstWhere((s) => s.id == selectedSubjectId);
-
-    if (!context.mounted) return;
-
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            StudyLockScreen(sessionId: id, subject: subject),
-        fullscreenDialog: true,
-      ),
-    );
-  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1110,14 +1041,19 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
   Widget build(BuildContext context) {
     final color = _colorFromHex(widget.subject.colorHex);
     final goalMinutes = widget.plan.goalMinutes;
-    final hasTime = widget.plan.targetDate.hour != 0 ||
-        widget.plan.targetDate.minute != 0;
+    final rawDate = widget.plan.targetDate;
+    final localDate = rawDate.toLocal();
+    final hasTime = localDate.hour != 0 || localDate.minute != 0;
+
+    debugPrint('[_PlanCard] raw=$rawDate, isUtc=${rawDate.isUtc}, '
+        'ms=${rawDate.millisecondsSinceEpoch}, '
+        'local=$localDate, hour=${localDate.hour}');
 
     String subtitle;
     if (hasTime) {
       final startTime = TimeOfDay(
-          hour: widget.plan.targetDate.hour,
-          minute: widget.plan.targetDate.minute);
+          hour: localDate.hour,
+          minute: localDate.minute);
       final endTotalMinutes =
           startTime.hour * 60 + startTime.minute + goalMinutes;
       final endTime = TimeOfDay(
@@ -1166,7 +1102,7 @@ class _PlanCardState extends ConsumerState<_PlanCard> {
             icon: const Icon(Icons.delete, color: Colors.red),
             onPressed: () async {
               await ref
-                  .read(studyPlanViewModelProvider(widget.date)
+                  .read(todayPlanViewModelProvider(widget.date)
                   .notifier)
                   .deletePlan(widget.plan.id);
               // 계획 날짜 캐시 갱신

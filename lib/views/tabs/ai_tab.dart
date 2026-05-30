@@ -36,30 +36,23 @@ class _PlanData {
     this.planDate,
   });
 
-  factory _PlanData.fromJson(Map<String, dynamic> json) => _PlanData(
-    subjectName: json['subjectName'] as String? ?? '',
-    startTime: json['startTime'] as String? ?? '09:00',
-    goalMinutes: (json['goalMinutes'] as num?)?.toInt() ?? 60,
-    memo: json['memo'] as String? ?? '',
-    planDate: json['date'] as String?,
-  );
 }
 
 // ── 날짜 범위 ─────────────────────────────────────────────
-class _DateRange {
-  final DateTime start;
-  final DateTime end;
-  _DateRange({required this.start, required this.end});
+class _DateLabel {
+  final DateTime date;
+  _DateLabel({required this.date});
 
-  String key() => '$_kPlanPrefix${DateFormat('yyyy-MM-dd').format(start)}_${DateFormat('yyyy-MM-dd').format(end)}';
+  String key() => '$_kPlanPrefix${DateFormat('yyyy-MM-dd').format(date)}';
 
+  /// "5월 29일~5월 30일 새벽" 형태의 범위 라벨
   String label() {
-    if (start.year == end.year && start.month == end.month && start.day == end.day) {
-      return DateFormat('M월 d일 (E)', 'ko').format(start);
+    final next = date.add(const Duration(days: 1));
+    final sameMonth = date.month == next.month;
+    if (sameMonth) {
+      return '${date.month}월 ${date.day}일~${next.day}일 새벽';
     }
-    final s = DateFormat('M월 d일', 'ko').format(start);
-    final e = DateFormat('M월 d일 (E)', 'ko').format(end);
-    return '$s ~ $e';
+    return '${date.month}월 ${date.day}일~${next.month}월 ${next.day}일 새벽';
   }
 }
 
@@ -72,6 +65,7 @@ class _ChatMessage {
   bool plansAdded;
   bool isStreaming;
   String? toolStatus;
+  List<String>? pendingOptions; // 오전/오후 등 선택지 (AI 응답에서 추출)
 
   _ChatMessage({
     required this.isAi,
@@ -81,100 +75,26 @@ class _ChatMessage {
     this.plansAdded = false,
     this.isStreaming = false,
     this.toolStatus,
+    this.pendingOptions,
   });
 }
 
 // ── 저장된 세션 정보 ──────────────────────────────────────
 class _SessionInfo {
   final String key;       // SharedPreferences 키
-  final DateTime start;
-  final DateTime end;
+  final DateTime date;
   final int messageCount; // 사용자 메시지 수
 
   _SessionInfo({
     required this.key,
-    required this.start,
-    required this.end,
+    required this.date,
     required this.messageCount,
   });
 
-  String get label => _DateRange(start: start, end: end).label();
+  String get label => _DateLabel(date: date).label();
 }
 
 // ── JSON 파싱 유틸 ────────────────────────────────────────
-List<_PlanData>? _extractPlans(String text) {
-  // ① 완전한 ```json ... ``` 블록 우선 시도
-  final closedRegex = RegExp(r'```json\s*([\s\S]*?)\s*```', multiLine: true);
-  final closedMatch = closedRegex.firstMatch(text);
-
-  String? jsonStr;
-  if (closedMatch != null) {
-    jsonStr = closedMatch.group(1)!;
-  } else {
-    // ② 닫는 ``` 없이 잘린 경우: ```json 이후 끝까지
-    final openRegex = RegExp(r'```json\s*([\s\S]*)', multiLine: true);
-    final openMatch = openRegex.firstMatch(text);
-    if (openMatch != null) {
-      jsonStr = openMatch.group(1)!.trim();
-    }
-  }
-
-  if (jsonStr == null || jsonStr.isEmpty) return null;
-
-  // ③ 완전한 JSON 파싱 시도
-  try {
-    final data = jsonDecode(jsonStr) as Map<String, dynamic>;
-    final plans = data['plans'] as List?;
-    if (plans == null || plans.isEmpty) return null;
-    return _parsePlanList(plans);
-  } catch (_) {}
-
-  // ④ JSON이 잘렸을 때: 완성된 객체만 추출
-  return _extractPartialPlans(jsonStr);
-}
-
-List<_PlanData>? _extractPartialPlans(String jsonStr) {
-  final plansStart = jsonStr.indexOf('"plans"');
-  if (plansStart == -1) return null;
-
-  final bracketStart = jsonStr.indexOf('[', plansStart);
-  if (bracketStart == -1) return null;
-
-  final results = <_PlanData>[];
-  int depth = 0;
-  int objStart = -1;
-
-  for (int i = bracketStart; i < jsonStr.length; i++) {
-    final ch = jsonStr[i];
-    if (ch == '{') {
-      if (depth == 0) objStart = i;
-      depth++;
-    } else if (ch == '}') {
-      depth--;
-      if (depth == 0 && objStart != -1) {
-        final objStr = jsonStr.substring(objStart, i + 1);
-        try {
-          final obj = jsonDecode(objStr) as Map<String, dynamic>;
-          results.add(_PlanData.fromJson(obj));
-        } catch (_) {}
-        objStart = -1;
-      }
-    }
-  }
-
-  return results.isNotEmpty ? results : null;
-}
-
-List<_PlanData> _parsePlanList(List plans) {
-  return plans
-      .whereType<Map<String, dynamic>>()
-      .map((e) => _PlanData.fromJson(e))
-      .toList();
-}
-
-String _stripJsonBlock(String text) =>
-    text.replaceAll(RegExp(r'```json\s*[\s\S]*?```', multiLine: true), '').trim();
-
 class AiTab extends ConsumerStatefulWidget {
   const AiTab({super.key});
 
@@ -192,11 +112,10 @@ class _AiTabState extends ConsumerState<AiTab> {
 
   AiSession _currentSession = AiSession.dailyPlan;
 
-  DateTime _rangeStart = DateTime.now();
-  DateTime _rangeEnd = DateTime.now();
+  DateTime _selectedDate = DateTime.now();
 
   String _rangeKey() =>
-      '$_kPlanPrefix${DateFormat('yyyy-MM-dd').format(_rangeStart)}_${DateFormat('yyyy-MM-dd').format(_rangeEnd)}';
+      '$_kPlanPrefix${DateFormat('yyyy-MM-dd').format(_selectedDate)}';
 
   final Map<String, List<_ChatMessage>> _planMessagesCache = {};
   final Map<String, List<Map<String, dynamic>>> _planHistoryCache = {};
@@ -222,7 +141,6 @@ class _AiTabState extends ConsumerState<AiTab> {
 
   bool _isLoading = false;
   bool _isDataLoaded = false;
-  DateTime _prevSelectedDate = DateTime.now();
 
   // ── 사이드바 세션 목록 ────────────────────────────────
   List<_SessionInfo> _savedSessions = [];
@@ -234,7 +152,7 @@ class _AiTabState extends ConsumerState<AiTab> {
     _initSpeech();
   }
 
-  String get _rangeLabel => _DateRange(start: _rangeStart, end: _rangeEnd).label();
+  String get _rangeLabel => _DateLabel(date: _selectedDate).label();
 
   Future<void> _initSpeech() async {
     _speechAvailable = await _speech.initialize(
@@ -283,26 +201,168 @@ class _AiTabState extends ConsumerState<AiTab> {
     }
   }
 
-  // ── 기간 선택 다이얼로그 ──────────────────────────────
-  Future<void> _pickDateRange() async {
-    final picked = await showDialog<_DateRange>(
-      context: context,
-      builder: (context) => _DateRangePickerDialog(
-        start: _rangeStart,
-        end: _rangeEnd,
-      ),
-    );
-    if (picked != null) {
-      setState(() {
-        _rangeStart = picked.start;
-        _rangeEnd = picked.end;
-      });
-      await _loadPlanDataForRange();
-    }
+  // ── 날짜 스와이프 ─────────────────────────────────────
+  void _swipeDate(int days) async {
+    setState(() {
+      _selectedDate = _selectedDate.add(Duration(days: days));
+    });
+    await _loadPlanDataForRange();
+    if (mounted) setState(() {});
   }
 
   // ── 계획 등록 버튼 처리 ───────────────────────────────
+  /// AI 답변 텍스트를 직접 파싱해서 계획 추출
+  List<_PlanData> _parsePlansFromText(String text) {
+    final results = <_PlanData>[];
+    final lines = text.split('\n');
+    String? currentDate; // AI 텍스트에서 추출한 날짜 (ISO: yyyy-MM-dd)
+
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+
+      // 날짜 패턴 감지: "5월 31일", "5월31일" 등
+      final dateMatch = RegExp(r'(\d{1,2})월\s*(\d{1,2})일').firstMatch(trimmed);
+      if (dateMatch != null) {
+        final month = int.parse(dateMatch.group(1)!);
+        final day = int.parse(dateMatch.group(2)!);
+        // _selectedDate의 연도 사용
+        currentDate = '${_selectedDate.year}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+      }
+
+      // 테이블 행: | 시간 | 활동 | 공부시간 | ...
+      if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+        final cells = trimmed
+            .split('|')
+            .map((c) => c.trim())
+            .where((c) => c.isNotEmpty)
+            .toList();
+        // 헤더/구분선 건너뛰기
+        if (cells.length < 3) continue;
+        if (cells.every((c) => RegExp(r'^[-:]+$').hasMatch(c))) continue;
+        if (cells[0] == '시간' || cells[0] == '과목' || cells[0] == 'Subject') continue;
+
+        // 시간-활동-공부시간 순서
+        final time = _parseTimeStr(cells[0]);
+        final subject = cells[1];
+        final minutes = _parseMinutesStr(cells[2]);
+        if (time != null && minutes != null) {
+          results.add(_PlanData(
+            subjectName: subject,
+            startTime: time,
+            goalMinutes: minutes,
+            planDate: currentDate,
+          ));
+        }
+        continue;
+      }
+
+      // 목록 형식: "1. 09:00 - 수학, 60분" 또는 "09:00 수학 60분"
+      final listMatch = RegExp(
+          r'^\d+\.\s*(\d{1,2}:\d{2})\s*[-:]\s*(.+?)\s*[,]\s*(\d+)\s*분')
+          .firstMatch(trimmed);
+      if (listMatch != null) {
+        results.add(_PlanData(
+          subjectName: listMatch.group(2)!.trim(),
+          startTime: listMatch.group(1)!,
+          goalMinutes: int.parse(listMatch.group(3)!),
+          planDate: currentDate,
+        ));
+        continue;
+      }
+
+      // "HH:mm 과목명 N분" 형식
+      final simpleMatch = RegExp(
+          r'^(\d{1,2}:\d{2})\s+(.+?)\s+(\d+)\s*분')
+          .firstMatch(trimmed);
+      if (simpleMatch != null) {
+        results.add(_PlanData(
+          subjectName: simpleMatch.group(2)!.trim(),
+          startTime: simpleMatch.group(1)!,
+          goalMinutes: int.parse(simpleMatch.group(3)!),
+          planDate: currentDate,
+        ));
+      }
+    }
+
+    return results;
+  }
+
+  /// "09:00", "오전 9시", "오후 2시 30분", "5월 31일 03:00" → "09:00" 형식으로 변환
+  String? _parseTimeStr(String raw) {
+    final s = raw.trim();
+    // 날짜+시간 형식에서 시간만 추출: "5월 31일 03:00" → "03:00"
+    final withDate = RegExp(r'\d{1,2}월\s*\d{1,2}일\s+(\d{1,2}):(\d{2})').firstMatch(s);
+    if (withDate != null) {
+      return '${withDate.group(1)!.padLeft(2, '0')}:${withDate.group(2)}';
+    }
+    // HH:mm 형식
+    final hhmm = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(s);
+    if (hhmm != null) {
+      return '${hhmm.group(1)!.padLeft(2, '0')}:${hhmm.group(2)}';
+    }
+    // "오전/오후 N시 M분" 형식
+    final kor = RegExp(r'(오전|오후)?\s*(\d{1,2})\s*시\s*(\d{1,2})?\s*분?').firstMatch(s);
+    if (kor != null) {
+      int h = int.parse(kor.group(2)!);
+      int m = kor.group(3) != null ? int.parse(kor.group(3)!) : 0;
+      if (kor.group(1) == '오후' && h < 12) h += 12;
+      if (kor.group(1) == '오전' && h == 12) h = 0;
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+    }
+    return null;
+  }
+
+  /// "60분", "1시간", "1시간 30분" → 분 단위 정수
+  int? _parseMinutesStr(String raw) {
+    final s = raw.trim();
+    // "N분"
+    final minMatch = RegExp(r'^(\d+)\s*분$').firstMatch(s);
+    if (minMatch != null) return int.parse(minMatch.group(1)!);
+    // "N시간 M분"
+    final hmMatch = RegExp(r'(\d+)\s*시간\s*(\d+)?\s*분?').firstMatch(s);
+    if (hmMatch != null) {
+      int h = int.parse(hmMatch.group(1)!);
+      int m = hmMatch.group(2) != null ? int.parse(hmMatch.group(2)!) : 0;
+      return h * 60 + m;
+    }
+    // "N시간"
+    final hrMatch = RegExp(r'^(\d+)\s*시간$').firstMatch(s);
+    if (hrMatch != null) return int.parse(hrMatch.group(1)!) * 60;
+    // 숫자만 → 분으로 간주
+    if (RegExp(r'^\d+$').hasMatch(s)) return int.parse(s);
+    return null;
+  }
+
   Future<void> _addPlans(List<_PlanData> plans, int messageIndex) async {
+    // plans가 비어있으면 AI 답변에서 직접 파싱
+    if (plans.isEmpty) {
+      final messages = _planMessages();
+      if (messageIndex >= messages.length) return;
+
+      final aiResponse = messages[messageIndex].text;
+      if (aiResponse.isEmpty) return;
+
+      plans = _parsePlansFromText(aiResponse);
+      if (plans.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('계획을 추출할 수 없어요. 다시 시도해주세요.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+    }
+
+    // 기존 계획 삭제 (selectedDate + nextDate 범위)
+    await ref.read(todayPlanViewModelProvider(_selectedDate).notifier)
+        .deleteAllPlansForDate(_selectedDate);
+    final nextDate = _selectedDate.add(const Duration(days: 1));
+    await ref.read(todayPlanViewModelProvider(nextDate).notifier)
+        .deleteAllPlansForDate(nextDate);
+
     final allSubjects = await database.getAllSubjects();
 
     int addedCount = 0;
@@ -320,26 +380,60 @@ class _AiTabState extends ConsumerState<AiTab> {
 
       final subject = matched.first;
 
-      DateTime targetDate = _rangeStart;
-      if (plan.planDate != null) {
+      DateTime targetDate = _selectedDate;
+      if (plan.planDate != null && plan.planDate!.isNotEmpty) {
         try {
-          final parsed = DateFormat('yyyy-MM-dd').parse(plan.planDate!);
-          targetDate = DateTime(parsed.year, parsed.month, parsed.day);
+          final parts = plan.planDate!.split('-');
+          targetDate = DateTime(
+            int.parse(parts[0]),
+            int.parse(parts[1]),
+            int.parse(parts[2]),
+          );
         } catch (_) {}
       }
 
+      // 시간 파싱 (다양한 형식 지원)
       try {
-        final parts = plan.startTime.split(':');
-        final hour = int.parse(parts[0]);
-        final minute = int.parse(parts[1]);
-        targetDate = DateTime(
-          targetDate.year, targetDate.month, targetDate.day,
-          hour, minute,
-        );
+        final timeStr = plan.startTime.trim();
+        int hour = 0;
+        int minute = 0;
+
+        if (timeStr.contains(':')) {
+          // "09:00" 또는 "9:30" 형식
+          final parts = timeStr.split(':');
+          hour = int.parse(parts[0]);
+          minute = int.parse(parts[1].replaceAll(RegExp(r'[^0-9]'), ''));
+        } else if (timeStr.contains('시')) {
+          // "오전 9시" 또는 "오후 2시 30분" 형식
+          final hourMatch = RegExp(r'(\d+)시').firstMatch(timeStr);
+          if (hourMatch != null) {
+            hour = int.parse(hourMatch.group(1)!);
+          }
+          final minuteMatch = RegExp(r'(\d+)분').firstMatch(timeStr);
+          if (minuteMatch != null) {
+            minute = int.parse(minuteMatch.group(1)!);
+          }
+          // 오후 처리 (12시간제 → 24시간제)
+          if (timeStr.contains('오후') && hour < 12) {
+            hour += 12;
+          }
+        }
+
+        // 유효성 검사
+        if (hour >= 0 && hour < 24 && minute >= 0 && minute < 60) {
+          targetDate = DateTime(
+            targetDate.year, targetDate.month, targetDate.day,
+            hour, minute,
+          );
+        }
       } catch (_) {}
 
+      debugPrint('[_addPlans] targetDate=$targetDate, isUtc=${targetDate.isUtc}, '
+          'hour=${targetDate.hour}, minute=${targetDate.minute}');
+
+      // todayPlanViewModelProvider 사용 → 오늘 탭 자동 갱신
       await ref
-          .read(studyPlanViewModelProvider(targetDate).notifier)
+          .read(todayPlanViewModelProvider(targetDate).notifier)
           .addPlan(
         subjectId: subject.id,
         targetDate: targetDate,
@@ -352,6 +446,7 @@ class _AiTabState extends ConsumerState<AiTab> {
     setState(() {
       final messages = _planMessages();
       if (messageIndex < messages.length) {
+        messages[messageIndex].plans = plans;
         messages[messageIndex].plansAdded = true;
       }
     });
@@ -372,6 +467,114 @@ class _AiTabState extends ConsumerState<AiTab> {
         ),
       );
     }
+  }
+
+  // ── 시간 애매함 마커 처리 ──────────────────────────────
+  static bool _hasAmbiguityMarker(String text) =>
+      text.contains('[TIME_AMBIGUITY:');
+
+  static String _stripAmbiguityMarker(String text) =>
+      text.replaceAll(RegExp(r'\s*\[TIME_AMBIGUITY:[^\]]*\]\s*'), '\n').trim();
+
+  static List<String>? _extractAmbiguityOptions(String text) {
+    final m = RegExp(r'\[TIME_AMBIGUITY:([^\]]*)\]').firstMatch(text);
+    if (m == null) return null;
+    return m.group(1)!.split('|').map((e) => e.trim()).toList();
+  }
+
+  // ── 오전/오후 선택 후 계획 생성 ──────────────────────
+  Future<void> _sendClarification(String selectedOption) async {
+    final isPlan = _currentSession == AiSession.dailyPlan;
+    final currentMessages = isPlan ? _planMessages() : _prefMessages;
+    final currentHistory = isPlan ? _planHistory() : _prefHistory;
+
+    final categoryList = await ref.read(categoryViewModelProvider.future);
+    final systemPrompt = _buildPlanSystemPrompt(categoryList);
+
+    final openRouterKey = await ref.read(openRouterApiKeyProvider.future);
+
+    setState(() {
+      currentMessages.add(_ChatMessage(isAi: false, text: selectedOption));
+      _isLoading = true;
+    });
+    _scrollToBottom();
+
+    currentHistory.add({'role': 'user', 'parts': [{'text': selectedOption}]});
+
+    final aiBubble = _ChatMessage(isAi: true, text: '', isStreaming: true);
+    setState(() => currentMessages.add(aiBubble));
+
+    final StringBuffer buffer = StringBuffer();
+    final client = http.Client();
+
+    try {
+      if (openRouterKey != null && openRouterKey.isNotEmpty) {
+        final openRouterModel =
+            ref.read(openRouterModelProvider).valueOrNull ?? defaultOpenRouterModel;
+        await _sendOpenRouterRequest(
+          client: client,
+          apiKey: openRouterKey,
+          model: openRouterModel,
+          systemPrompt: systemPrompt,
+          text: selectedOption,
+          isPlan: isPlan,
+          aiBubble: aiBubble,
+          buffer: buffer,
+          currentMessages: currentMessages,
+        );
+      } else {
+        final serverUrl = await ref.read(serverUrlProvider.future);
+        final url =
+            '${serverUrl.replaceAll(RegExp(r'/+$'), '')}/v1/responses';
+        await _sendHermesRequest(
+          client: client,
+          url: url,
+          systemPrompt: systemPrompt,
+          text: selectedOption,
+          isPlan: isPlan,
+          aiBubble: aiBubble,
+          buffer: buffer,
+          currentMessages: currentMessages,
+        );
+      }
+
+      final rawText = buffer.toString();
+      if (rawText.isNotEmpty) {
+        const planMarker = '오늘자 공부 계획을 생성하겠습니다.';
+        final hasPlanMarker = isPlan && rawText.contains(planMarker);
+        final plans = hasPlanMarker ? <_PlanData>[] : null;
+
+        setState(() {
+          aiBubble.text = rawText;
+          aiBubble.plans = plans;
+          aiBubble.isStreaming = false;
+          aiBubble.toolStatus = null;
+          _isLoading = false;
+        });
+
+        currentHistory.add({'role': 'model', 'parts': [{'text': rawText}]});
+        if (isPlan) await _savePlanData();
+      } else {
+        setState(() {
+          aiBubble.isStreaming = false;
+          aiBubble.toolStatus = null;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        aiBubble.text = '네트워크 오류가 발생했어요.';
+        aiBubble.isError = true;
+        aiBubble.isStreaming = false;
+        aiBubble.toolStatus = null;
+        _isLoading = false;
+      });
+      currentHistory.removeLast();
+    } finally {
+      client.close();
+    }
+
+    _scrollToBottom();
   }
 
   // ── 저장/불러오기 ─────────────────────────────────────
@@ -427,15 +630,12 @@ class _AiTabState extends ConsumerState<AiTab> {
 
     final sessions = <_SessionInfo>[];
     for (final fullKey in sessionKeys) {
-      // key 형식: plan_chat_yyyy-MM-dd_yyyy-MM-dd_msg
+      // key 형식: plan_chat_yyyy-MM-dd_msg
       final withoutSuffix = fullKey.replaceAll('_msg', '');
       final withoutPrefix = withoutSuffix.replaceFirst(_kPlanPrefix, '');
-      // withoutPrefix: yyyy-MM-dd_yyyy-MM-dd
-      final parts = withoutPrefix.split('_');
-      if (parts.length < 2) continue;
+      // withoutPrefix: yyyy-MM-dd
       try {
-        final start = DateFormat('yyyy-MM-dd').parse(parts[0]);
-        final end = DateFormat('yyyy-MM-dd').parse(parts[1]);
+        final date = DateFormat('yyyy-MM-dd').parse(withoutPrefix);
         final msgJson = prefs.getString(fullKey);
         int userMsgCount = 0;
         if (msgJson != null) {
@@ -445,8 +645,7 @@ class _AiTabState extends ConsumerState<AiTab> {
         if (userMsgCount > 0) {
           sessions.add(_SessionInfo(
             key: withoutSuffix,
-            start: start,
-            end: end,
+            date: date,
             messageCount: userMsgCount,
           ));
         }
@@ -454,7 +653,7 @@ class _AiTabState extends ConsumerState<AiTab> {
     }
 
     // 최신순 정렬
-    sessions.sort((a, b) => b.start.compareTo(a.start));
+    sessions.sort((a, b) => b.date.compareTo(a.date));
     if (mounted) setState(() => _savedSessions = sessions);
   }
 
@@ -531,8 +730,7 @@ class _AiTabState extends ConsumerState<AiTab> {
   // ── 사이드바: 세션 선택 ──────────────────────────────
   Future<void> _jumpToSession(_SessionInfo session) async {
     setState(() {
-      _rangeStart = session.start;
-      _rangeEnd = session.end;
+      _selectedDate = session.date;
       _currentSession = AiSession.dailyPlan;
     });
     await _loadPlanDataForRange();
@@ -584,42 +782,41 @@ class _AiTabState extends ConsumerState<AiTab> {
 
   String _buildPlanSystemPrompt(List<Map<String, dynamic>> categoryList) {
     final categoryCtx = _buildCategoryContext(categoryList);
-    final rangeLabel = _DateRange(start: _rangeStart, end: _rangeEnd).label();
+    final rangeLabel = _DateLabel(date: _selectedDate).label();
+    final now = DateTime.now();
+
+    // ── 고정 prefix (캐시 최적화: 변하지 않는 부분을 맨 앞에 배치) ──
     String base = '''
 너는 공부 계획을 도와주는 AI 어시스턴트야.
-오늘 날짜는 ${DateFormat('yyyy년 M월 d일 (E)', 'ko').format(DateTime.now())}이야.
-계획 기간: $rangeLabel이야.
-한국어로 대화해줘.
-$categoryCtx
-
-[날짜 기준]
-이 앱에서는 오전 6시를 기준으로 하루가 시작돼.
-- "5월 29일"은 5월 29일 06:00 ~ 5월 30일 05:59까지야.
-- 새벽 시간(00:00~05:59)에 공부할 계획이 있으면 전날 날짜로 지정해줘.
-  예: 새벽 2시에 공부할 계획 → date는 전날 날짜
+한국어, 존댓말로 대화해줘.
 
 [중요 규칙]
 사용자가 공부 계획 생성을 요청하면:
-1. 자연스러운 한국어 존댓말로 계획을 설명해줘.
-2. 설명 뒤에 반드시 아래 형식의 JSON 블록을 추가해줘.
-   - date는 "yyyy-MM-dd" 형식으로 기간 내의 날짜를 지정해줘.
-   - subjectName은 위 과목 목록의 이름을 정확히 사용해.
-   - startTime은 "HH:mm" 형식 (24시간제).
-   - goalMinutes는 정수(분 단위).
-   - memo는 선택사항.
+1. 응답 첫 줄에 반드시 "오늘자 공부 계획을 생성하겠습니다." 라는 문장을 토씨 하나 안 빼고 정확히 써줘.
+2. 그 다음 줄부터 계획을 설명해줘.
+3. 표 형식으로 깔끔하게 정리해줘.
+4. "활동" 칸에는 반드시 등록된 과목명만 정확히 써야 해. "휴식"도 쓰지 마.
 
-```json
-{
-  "plans": [
-    {"date": "${DateFormat('yyyy-MM-dd').format(_rangeStart)}", "subjectName": "수학", "startTime": "09:00", "goalMinutes": 60, "memo": "미적분"},
-    {"date": "${DateFormat('yyyy-MM-dd').format(_rangeStart)}", "subjectName": "영어", "startTime": "10:30", "goalMinutes": 45, "memo": ""}
-  ]
-}
-```
+[시간 표시 규칙]
+시간 칸에는 반드시 날짜를 포함해서 써줘. 예: "5월 31일 03:00"
+같은 날짜가 연속되면 첫 행에만 날짜를 써도 돼.
 
-계획 생성이 아닌 일반 대화에는 JSON 블록을 추가하지 마.
-답변은 너무 길지 않게 해줘.
+예시 응답 형식:
+오늘자 공부 계획을 생성하겠습니다.
+${rangeLabel} 계획을 세워드릴게요!
+
+| 시간 | 과목 | 공부시간 |
+|------|------|----------|
+| 5월 30일 09:00 | 수학 | 60분 |
+| 10:30 | 영어 | 45분 |
+| 5월 31일 03:00 | 물리 | 60분 |
+
+과목 칸은 반드시 등록된 과목명 그대로만 써야 해. 예를 들어 "수학"만 쓰고, "수학 집중학습"이나 "수학 복습"처럼 쓰지 마.
+계획 생성이 아닌 일반 대화에는 위 문장을 쓰지 마.
 ''';
+
+    // ── 동적 컨텍스트 (변동 가능성을 뒤쪽에 배치) ──
+    base += '\n$categoryCtx';
 
     if (_prefHistory.isNotEmpty) {
       final prefSummary = _prefHistory
@@ -628,6 +825,51 @@ $categoryCtx
           .join('\n');
       base += '\n[사용자 공부 성향 - 계획 시 반드시 반영]\n$prefSummary\n';
     }
+
+    // ── 날짜/시간 정보 (매 요청 변동 → 가장 마지막에 배치) ──
+    final nextDate = _selectedDate.add(const Duration(days: 1));
+    base += '''
+
+[현재 정보]
+현재 시각: ${DateFormat('yyyy년 M월 d일 (E) HH:mm', 'ko').format(now)}
+사용자가 선택한 계획 기간: ${_selectedDate.month}월 ${_selectedDate.day}일 오전 6시 ~ ${nextDate.month}월 ${nextDate.day}일 오전 6시
+
+[시간 범위 엄수 규칙 — 반드시 지켜야 함]
+사용자가 요청한 시간만 계획에 넣어줘. 위에 표시된 "계획 기간"은 가능한 시간 범위일 뿐, 그 전체를 채우지 마.
+예: 사용자가 "새벽 3시~5시"를 요청하면, 5월 ${nextDate.day}일 03:00~05:00만 넣고 ${_selectedDate.day}일 저녁 시간은 절대 포함하지 마.
+예: 사용자가 "15시~17시"를 요청하면, ${_selectedDate.day}일 15:00~17:00만 넣고 새벽 시간은 절대 포함하지 마.
+다른 시간대를 임의로 추가하지 마.
+
+사용자가 시간을 24시간제(예: "15시")로 표기했으면 그대로 따라줘.
+시간이 오전인지 오후인지 새벽인지 애매하면, 현재 시각(${now.hour}시 ${now.minute}분)을 기준으로 판단해:
+
+1) 현재 시각이 오전(06:00~11:59)인 경우:
+   - 요청 시간이 현재 시각 이후 → 당일 오전/오후만 선택지로 (새벽은 이미 지남)
+   - 요청 시간이 현재 시각 이전 → 새벽만 가능하므로 바로 새벽으로 처리
+
+2) 현재 시각이 오후(12:00~23:59)인 경우:
+   - 요청 시간이 현재 시각 이후 → 당일 오후로 바로 처리
+   - 요청 시간이 현재 시각 이전 → 새벽만 가능하므로 바로 새벽으로 처리
+   - 요청 시간이 애매하면(예: "3시~5시"), 오후와 새벽 중 선택:
+
+[TIME_AMBIGUITY:오후 N시~N시|새벽 N시~N시]
+
+예시 (현재 시각이 오후 2시):
+사용자: "3시부터 5시 계획 짜줘" → 현재 시각 이후 → 바로 오후로 처리 (질문 없음)
+사용자: "1시부터 3시" → 현재 시각 이전 → 바로 새벽으로 처리 (질문 없음)
+
+예시 (현재 시각이 오전 8시):
+사용자: "10시부터 12시" → 현재 시각 이후 → 바로 오전/오후로 처리 (질문 없음)
+사용자: "3시부터 5시" → 현재 시각 이전 → 새벽만 가능 → 바로 새벽으로 처리 (질문 없음)
+
+사용자가 명확히 오전/오후/새벽을 표시했으면 묻지 마:
+- "새벽 3시" → 새벽으로 처리
+- "오후 3시" → 오후로 처리
+- "오전 9시" → 오전으로 처리
+- "15시부터 17시" → 오후(24시간제)로 처리
+
+[TIME_AMBIGUITY] 표시가 포함된 응답에서는 계획 표를 만들지 마. 사용자가 선택한 후에 계획을 만들어야 해.''';
+
     return base;
   }
 
@@ -636,9 +878,6 @@ $categoryCtx
 사용자가 자신의 공부 습관, 취약점, 선호 시간대 등을 말하면
 리스트 형태로 정리한 다음 "또 다른 성향이 있나요?" 로 끝내.
 한국어 존댓말로 대화해줘.
-
-사용자가 성향을 말할 때마다 반드시 memory 도구를 사용해서 저장해.
-저장할 때는 제목을 "사용자 학습 성향"으로 하고, 새로운 성향이 나올 때마다 기존 내용에 추가해.
 ''';
 
   @override
@@ -724,12 +963,20 @@ $categoryCtx
       // 최종 처리
       final rawText = buffer.toString();
       if (rawText.isNotEmpty) {
-        final plans = isPlan ? _extractPlans(rawText) : null;
-        final displayText = _stripJsonBlock(rawText);
+        // [TIME_AMBIGUITY] 마커 감지 → 오전/오후 선택지 표시
+        final hasAmbiguity = _hasAmbiguityMarker(rawText);
+        final displayText = _stripAmbiguityMarker(rawText);
+        final ambiguityOptions = hasAmbiguity ? _extractAmbiguityOptions(rawText) : null;
+
+        // 계획 마커가 있으면 추출 버튼 표시를 위해 빈 plans 설정
+        const planMarker = '오늘자 공부 계획을 생성하겠습니다.';
+        final hasPlanMarker = isPlan && rawText.contains(planMarker);
+        final plans = (hasPlanMarker && !hasAmbiguity) ? <_PlanData>[] : null;
 
         setState(() {
           aiBubble.text = displayText;
           aiBubble.plans = plans;
+          aiBubble.pendingOptions = ambiguityOptions;
           aiBubble.isStreaming = false;
           aiBubble.toolStatus = null;
           _isLoading = false;
@@ -1028,26 +1275,10 @@ $categoryCtx
 
   @override
   Widget build(BuildContext context) {
-    final selectedDateRaw = ref.watch(selectedDateProvider);
-    final selectedDate = DateTime(
-        selectedDateRaw.year, selectedDateRaw.month, selectedDateRaw.day);
-
-    if (_prevSelectedDate != selectedDate) {
-      _prevSelectedDate = selectedDate;
-      setState(() {
-        _rangeStart = selectedDate;
-        _rangeEnd = selectedDate;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await _loadPlanDataForRange();
-        if (mounted) setState(() {});
-      });
-    }
-
     final isPlan = _currentSession == AiSession.dailyPlan;
     final currentMessages = isPlan ? _planMessages() : _prefMessages;
     final hasPrefData = _prefHistory.isNotEmpty;
-    final rangeDisplay = _DateRange(start: _rangeStart, end: _rangeEnd).label();
+    final rangeDisplay = _DateLabel(date: _selectedDate).label();
 
     return Scaffold(
       // ── 드로어: 세션 사이드바 ────────────────────────
@@ -1114,21 +1345,25 @@ $categoryCtx
           : Column(
         children: [
           if (isPlan)
-            InkWell(
-              onTap: _pickDateRange,
+            GestureDetector(
+              onHorizontalDragEnd: (details) {
+                final vx = details.primaryVelocity ?? 0;
+                if (vx < -200) _swipeDate(1);   // 왼쪽 스와이프 → 다음 날
+                if (vx > 200) _swipeDate(-1);    // 오른쪽 스와이프 → 이전 날
+              },
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.calendar_month, size: 16,
+                    Icon(Icons.chevron_left, size: 18,
                         color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 4),
                     Text(rangeDisplay,
                         style: TextStyle(fontSize: 13,
                             color: Theme.of(context).colorScheme.primary)),
                     const SizedBox(width: 4),
-                    Icon(Icons.edit_calendar, size: 14,
+                    Icon(Icons.chevron_right, size: 18,
                         color: Theme.of(context).colorScheme.primary),
                   ],
                 ),
@@ -1173,6 +1408,12 @@ $categoryCtx
                       ? () => _addPlans(message.plans!, index)
                       : null,
                   plansAdded: message.plansAdded,
+                  onClarificationSelected: message.isAi && message.pendingOptions != null
+                      ? (option) {
+                          setState(() => message.pendingOptions = null);
+                          _sendClarification(option);
+                        }
+                      : null,
                 );
               },
             ),
@@ -1321,138 +1562,20 @@ class _SessionDrawer extends StatelessWidget {
   }
 }
 
-// ── 날짜 범위 선택 다이얼로그 ─────────────────────────────────
-class _DateRangePickerDialog extends StatefulWidget {
-  final DateTime start;
-  final DateTime end;
-  const _DateRangePickerDialog({required this.start, required this.end});
-
-  @override
-  State<_DateRangePickerDialog> createState() => _DateRangePickerDialogState();
-}
-
-class _DateRangePickerDialogState extends State<_DateRangePickerDialog> {
-  DateTime _start = DateTime.now();
-  DateTime _end = DateTime.now();
-
-  @override
-  void initState() {
-    super.initState();
-    _start = widget.start;
-    _end = widget.end;
-  }
-
-  Future<void> _pickStart() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _start,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) {
-      setState(() {
-        _start = picked;
-        if (_end.isBefore(_start)) _end = _start;
-      });
-    }
-  }
-
-  Future<void> _pickEnd() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _end,
-      firstDate: _start,
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) {
-      setState(() => _end = picked);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sLabel = DateFormat('yyyy년 M월 d일', 'ko').format(_start);
-    final eLabel = DateFormat('yyyy년 M월 d일', 'ko').format(_end);
-    return AlertDialog(
-      title: const Text('계획 기간 선택'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          InkWell(
-            onTap: _pickStart,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border.all(color: Theme.of(context).colorScheme.primary),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.event, size: 20),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('시작일', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      Text(sLabel, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          InkWell(
-            onTap: _pickEnd,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border.all(color: Theme.of(context).colorScheme.primary),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.event, size: 20),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('종료일', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      Text(eLabel, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('취소'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context, _DateRange(start: _start, end: _end)),
-          child: const Text('확인'),
-        ),
-      ],
-    );
-  }
-}
-
 // ── 채팅 말풍선 ───────────────────────────────────────────
 class _ChatBubble extends StatefulWidget {
   final _ChatMessage message;
   final VoidCallback? onDelete;   // 사용자 메시지만 전달됨
   final VoidCallback? onAddPlans;
   final bool plansAdded;
+  final ValueChanged<String>? onClarificationSelected;
 
   const _ChatBubble({
     required this.message,
     this.onDelete,
     this.onAddPlans,
     this.plansAdded = false,
+    this.onClarificationSelected,
   });
 
   @override
@@ -1673,8 +1796,9 @@ class _ChatBubbleState extends State<_ChatBubble> {
                     ElevatedButton.icon(
                       onPressed: widget.onAddPlans,
                       icon: const Icon(Icons.add_task, size: 18),
-                      label:
-                      Text('계획 ${widget.message.plans!.length}개 추가하기'),
+                      label: Text(widget.message.plans!.isEmpty
+                          ? '계획 추출하기'
+                          : '계획 ${widget.message.plans!.length}개 추가하기'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
                         Theme.of(context).colorScheme.primary,
@@ -1685,6 +1809,34 @@ class _ChatBubbleState extends State<_ChatBubble> {
                             borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
+                ],
+                if (widget.onClarificationSelected != null &&
+                    widget.message.pendingOptions != null) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      for (final option in widget.message.pendingOptions!)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: OutlinedButton.icon(
+                            onPressed: () => widget.onClarificationSelected!(option),
+                            icon: Icon(
+                              option.contains('새벽') ? Icons.nightlight_round
+                                  : option.contains('오후') ? Icons.wb_sunny_outlined
+                                  : Icons.wb_sunny,
+                              size: 16,
+                            ),
+                            label: Text(option),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ],
             ),

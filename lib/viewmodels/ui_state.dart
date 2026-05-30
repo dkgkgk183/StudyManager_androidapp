@@ -27,10 +27,3 @@ class AppThemeMode extends _$AppThemeMode {
   void setTheme(ThemeMode mode) => state = mode;
 }
 
-// 현재 진행 중인 세션 ID (타이머 상태)
-@Riverpod(keepAlive: true)
-class ActiveSessionId extends _$ActiveSessionId {
-  @override
-  String? build() => null;
-  void setSession(String? id) => state = id;
-}
