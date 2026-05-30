@@ -482,6 +482,133 @@ class _AiTabState extends ConsumerState<AiTab> {
     return m.group(1)!.split('|').map((e) => e.trim()).toList();
   }
 
+  // ── AI 응답 다시 생성 ─────────────────────────────────
+  Future<void> _regenerateResponse(int aiMessageIndex) async {
+    final isPlan = _currentSession == AiSession.dailyPlan;
+    final currentMessages = isPlan ? _planMessages() : _prefMessages;
+    final currentHistory = isPlan ? _planHistory() : _prefHistory;
+
+    // AI 메시지 유효성 확인
+    if (aiMessageIndex < 0 || aiMessageIndex >= currentMessages.length) return;
+    if (!currentMessages[aiMessageIndex].isAi) return;
+
+    // 앞의 사용자 메시지 찾기
+    if (aiMessageIndex == 0) return; // 첫 AI 인사말은 재생성 불가
+    final userMessage = currentMessages[aiMessageIndex - 1];
+    if (userMessage.isAi) return;
+
+    // AI 메시지 제거 & 히스토리에서 모델 응답 제거
+    setState(() {
+      currentMessages.removeAt(aiMessageIndex);
+      // 히스토리에서 마지막 model 응답 제거
+      for (int i = currentHistory.length - 1; i >= 0; i--) {
+        if (currentHistory[i]['role'] == 'model') {
+          currentHistory.removeAt(i);
+          break;
+        }
+      }
+    });
+
+    if (isPlan) await _savePlanData();
+    else await _savePrefData();
+
+    // 사용자 메시지 텍스트로 재전송 (_controller에 넣지 않고 직접 처리)
+    final text = userMessage.text;
+    if (text.isEmpty || _isLoading) return;
+
+    final categoryList = isPlan
+        ? await ref.read(categoryViewModelProvider.future)
+        : <Map<String, dynamic>>[];
+    String systemPrompt = isPlan
+        ? _buildPlanSystemPrompt(categoryList)
+        : _prefSystemPrompt;
+
+    final openRouterKey = await ref.read(openRouterApiKeyProvider.future);
+
+    setState(() => _isLoading = true);
+
+    // 스트리밍 응답 버블 추가
+    final aiBubble = _ChatMessage(isAi: true, text: '', isStreaming: true);
+    setState(() => currentMessages.add(aiBubble));
+
+    final StringBuffer buffer = StringBuffer();
+    final client = http.Client();
+
+    try {
+      if (openRouterKey != null && openRouterKey.isNotEmpty) {
+        final openRouterModel =
+            ref.read(openRouterModelProvider).valueOrNull ?? defaultOpenRouterModel;
+        await _sendOpenRouterRequest(
+          client: client,
+          apiKey: openRouterKey,
+          model: openRouterModel,
+          systemPrompt: systemPrompt,
+          text: text,
+          isPlan: isPlan,
+          aiBubble: aiBubble,
+          buffer: buffer,
+          currentMessages: currentMessages,
+        );
+      } else {
+        final serverUrl = await ref.read(serverUrlProvider.future);
+        final url =
+            '${serverUrl.replaceAll(RegExp(r'/+$'), '')}/v1/responses';
+        await _sendHermesRequest(
+          client: client,
+          url: url,
+          systemPrompt: systemPrompt,
+          text: text,
+          isPlan: isPlan,
+          aiBubble: aiBubble,
+          buffer: buffer,
+          currentMessages: currentMessages,
+        );
+      }
+
+      final rawText = buffer.toString();
+      if (rawText.isNotEmpty) {
+        final hasAmbiguity = _hasAmbiguityMarker(rawText);
+        final displayText = _stripAmbiguityMarker(rawText);
+        final ambiguityOptions = hasAmbiguity ? _extractAmbiguityOptions(rawText) : null;
+
+        const planMarker = '오늘자 공부 계획을 생성하겠습니다.';
+        final hasPlanMarker = isPlan && rawText.contains(planMarker);
+        final plans = (hasPlanMarker && !hasAmbiguity) ? <_PlanData>[] : null;
+
+        setState(() {
+          aiBubble.text = displayText;
+          aiBubble.plans = plans;
+          aiBubble.pendingOptions = ambiguityOptions;
+          aiBubble.isStreaming = false;
+          aiBubble.toolStatus = null;
+          _isLoading = false;
+        });
+
+        currentHistory.add({'role': 'model', 'parts': [{'text': rawText}]});
+        if (isPlan) await _savePlanData();
+        else await _savePrefData();
+      } else {
+        setState(() {
+          aiBubble.isStreaming = false;
+          aiBubble.toolStatus = null;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        aiBubble.text = '네트워크 오류가 발생했어요.';
+        aiBubble.isError = true;
+        aiBubble.isStreaming = false;
+        aiBubble.toolStatus = null;
+        _isLoading = false;
+      });
+    } finally {
+      client.close();
+    }
+
+    _scrollToBottom();
+  }
+
   // ── 오전/오후 선택 후 계획 생성 ──────────────────────
   Future<void> _sendClarification(String selectedOption) async {
     final isPlan = _currentSession == AiSession.dailyPlan;
@@ -800,6 +927,7 @@ class _AiTabState extends ConsumerState<AiTab> {
 [시간 표시 규칙]
 시간 칸에는 반드시 날짜를 포함해서 써줘. 예: "5월 31일 03:00"
 같은 날짜가 연속되면 첫 행에만 날짜를 써도 돼.
+오전인지, 오후인지, 새벽인지는 쓰지 마.
 
 예시 응답 형식:
 오늘자 공부 계획을 생성하겠습니다.
@@ -841,26 +969,14 @@ ${rangeLabel} 계획을 세워드릴게요!
 다른 시간대를 임의로 추가하지 마.
 
 사용자가 시간을 24시간제(예: "15시")로 표기했으면 그대로 따라줘.
-시간이 오전인지 오후인지 새벽인지 애매하면, 현재 시각(${now.hour}시 ${now.minute}분)을 기준으로 판단해:
+시간이 오전인지 오후인지 새벽인지 애매하면(예: "3시", "9시"), 현재 시각과 상관없이 반드시 사용자에게 물어봐야 해.
+선택지에는 반드시 "오전", "오후", "새벽" 세 단어만 써야 해. 시간 정보는 본문에 따로 써줘.
 
-1) 현재 시각이 오전(06:00~11:59)인 경우:
-   - 요청 시간이 현재 시각 이후 → 당일 오전/오후만 선택지로 (새벽은 이미 지남)
-   - 요청 시간이 현재 시각 이전 → 새벽만 가능하므로 바로 새벽으로 처리
+[TIME_AMBIGUITY:오전|오후|새벽]
 
-2) 현재 시각이 오후(12:00~23:59)인 경우:
-   - 요청 시간이 현재 시각 이후 → 당일 오후로 바로 처리
-   - 요청 시간이 현재 시각 이전 → 새벽만 가능하므로 바로 새벽으로 처리
-   - 요청 시간이 애매하면(예: "3시~5시"), 오후와 새벽 중 선택:
-
-[TIME_AMBIGUITY:오후 N시~N시|새벽 N시~N시]
-
-예시 (현재 시각이 오후 2시):
-사용자: "3시부터 5시 계획 짜줘" → 현재 시각 이후 → 바로 오후로 처리 (질문 없음)
-사용자: "1시부터 3시" → 현재 시각 이전 → 바로 새벽으로 처리 (질문 없음)
-
-예시 (현재 시각이 오전 8시):
-사용자: "10시부터 12시" → 현재 시각 이후 → 바로 오전/오후로 처리 (질문 없음)
-사용자: "3시부터 5시" → 현재 시각 이전 → 새벽만 가능 → 바로 새벽으로 처리 (질문 없음)
+예시:
+사용자: "3시부터 5시 계획 짜줘" → 본문에 "오전 3시~5시 / 오후 3시~5시 / 새벽 3시~5시 중 선택해주세요"라고 쓰고, 마커는:
+[TIME_AMBIGUITY:오전|오후|새벽]
 
 사용자가 명확히 오전/오후/새벽을 표시했으면 묻지 마:
 - "새벽 3시" → 새벽으로 처리
@@ -1407,6 +1523,9 @@ ${rangeLabel} 계획을 세워드릴게요!
                   onAddPlans: (message.isAi && message.plans != null && !message.plansAdded)
                       ? () => _addPlans(message.plans!, index)
                       : null,
+                  onRegenerate: (message.isAi && index > 0 && !_isLoading)
+                      ? () => _regenerateResponse(index)
+                      : null,
                   plansAdded: message.plansAdded,
                   onClarificationSelected: message.isAi && message.pendingOptions != null
                       ? (option) {
@@ -1567,6 +1686,7 @@ class _ChatBubble extends StatefulWidget {
   final _ChatMessage message;
   final VoidCallback? onDelete;   // 사용자 메시지만 전달됨
   final VoidCallback? onAddPlans;
+  final VoidCallback? onRegenerate; // AI 응답 다시 생성
   final bool plansAdded;
   final ValueChanged<String>? onClarificationSelected;
 
@@ -1574,6 +1694,7 @@ class _ChatBubble extends StatefulWidget {
     required this.message,
     this.onDelete,
     this.onAddPlans,
+    this.onRegenerate,
     this.plansAdded = false,
     this.onClarificationSelected,
   });
@@ -1614,6 +1735,19 @@ class _ChatBubbleState extends State<_ChatBubble> {
           ],
         ),
       ),
+      if (isAi && widget.onRegenerate != null) ...[
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'regenerate',
+          child: Row(
+            children: const [
+              Icon(Icons.refresh, size: 18),
+              SizedBox(width: 10),
+              Text('답변 다시 생성'),
+            ],
+          ),
+        ),
+      ],
       if (!isAi) ...[
         const PopupMenuDivider(),
         PopupMenuItem<String>(
@@ -1638,8 +1772,9 @@ class _ChatBubbleState extends State<_ChatBubble> {
     );
 
     if (result == 'copy') {
-      // 클립보드 복사
       await _copyToClipboard(widget.message.text);
+    } else if (result == 'regenerate') {
+      widget.onRegenerate?.call();
     } else if (result == 'delete') {
       widget.onDelete?.call();
     }

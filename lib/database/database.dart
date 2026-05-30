@@ -204,6 +204,16 @@ class AppDatabase extends _$AppDatabase {
       (update(studyPlans)..where((t) => t.id.equals(id)))
           .write(StudyPlansCompanion(isCompleted: Value(completed)));
 
+  // ── 특정 날짜의 계획 조회 (캘린더일 기준, 삭제용 ID 수집) ──
+  Future<List<StudyPlan>> getPlansByCalendarDay(DateTime date) {
+    final start = DateTime(date.year, date.month, date.day);
+    final end = start.add(const Duration(days: 1));
+    return (select(studyPlans)
+      ..where((t) => t.targetDate.isBiggerOrEqualValue(start) &
+      t.targetDate.isSmallerThanValue(end)))
+        .get();
+  }
+
   // ── 특정 날짜의 계획 전체 삭제 (캘린더일 기준) ────────
   Future<int> deletePlansByDate(DateTime date) {
     final start = DateTime(date.year, date.month, date.day);
@@ -300,7 +310,7 @@ class AppDatabase extends _$AppDatabase {
     ])
       ..where(studyPlans.targetDate.isBiggerOrEqualValue(start) &
       studyPlans.targetDate.isSmallerThanValue(end))
-      ..orderBy([OrderingTerm.asc(studyPlans.createdAt)]));
+      ..orderBy([OrderingTerm.asc(studyPlans.targetDate)]));
   }
 
   Selectable<TypedResult> getSessionsWithSubject(DateTime date) {

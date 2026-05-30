@@ -274,7 +274,7 @@ class StudyPlanViewModel extends _$StudyPlanViewModel {
 
   // ── 해당 날짜 계획 전체 삭제 ─────────────────────────
   Future<void> deleteAllPlansForDate(DateTime date) async {
-    final plans = await database.getPlansByDate(date);
+    final plans = await database.getPlansByCalendarDay(date);
     final planIds = plans.map((p) => p.id).toList();
 
     await database.deletePlansByDate(date);
@@ -402,7 +402,7 @@ class TodayPlanViewModel extends _$TodayPlanViewModel {
   }
 
   Future<void> deleteAllPlansForDate(DateTime date) async {
-    final plans = await database.getPlansByDate(date);
+    final plans = await database.getPlansByCalendarDay(date);
     final planIds = plans.map((p) => p.id).toList();
     await database.deletePlansByDate(date);
     if (planIds.isNotEmpty) {

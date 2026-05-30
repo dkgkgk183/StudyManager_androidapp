@@ -337,13 +337,16 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                           message: 'AI 탭에서 계획을 만들거나\n직접 추가해보세요');
                     }
                     return Column(
-                      children: plans.map((item) {
+                      children: plans.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final item = entry.value;
                         final plan = item['plan'] as StudyPlan;
                         final subject = item['subject'] as Subject;
                         return _PlanCard(
                             plan: plan,
                             subject: subject,
-                            date: selectedDate);
+                            date: selectedDate,
+                            index: index);
                       }).toList(),
                     );
                   },
@@ -1027,8 +1030,9 @@ class _PlanCard extends ConsumerStatefulWidget {
   final StudyPlan plan;
   final Subject subject;
   final DateTime date;
+  final int index;
   const _PlanCard(
-      {required this.plan, required this.subject, required this.date});
+      {required this.plan, required this.subject, required this.date, required this.index});
 
   @override
   ConsumerState<_PlanCard> createState() => _PlanCardState();

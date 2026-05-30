@@ -1,10 +1,8 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../database/database.dart';
 import '../main.dart';
 import '../services/supabase_sync_service.dart';
 import 'study_view_model.dart';
@@ -32,7 +30,7 @@ class InitialSync extends _$InitialSync {
     final alreadyDone = prefs.getBool(_kFirstRunKey) ?? false;
 
     // Realtime 구독 시작
-    _realtimeManager = RealtimeSyncManager(database, ref);
+    _realtimeManager = RealtimeSyncManager();
     _realtimeManager!.start();
     ref.onDispose(() => _realtimeManager?.stop());
 
@@ -84,11 +82,8 @@ class InitialSync extends _$InitialSync {
 
 class RealtimeSyncManager {
   RealtimeChannel? _channel;
-  final AppDatabase _db;
-  final Ref _ref;
-  Timer? _debounce;
 
-  RealtimeSyncManager(this._db, this._ref);
+  RealtimeSyncManager();
 
   /// 구독 시작. device_number가 설정되어 있어야 함.
   Future<void> start() async {
@@ -102,55 +97,10 @@ class RealtimeSyncManager {
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
-          table: 'categories',
-          callback: (payload) => _onChange(payload, uid),
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'subjects',
-          callback: (payload) => _onChange(payload, uid),
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'study_plans',
-          callback: (payload) => _onChange(payload, uid),
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'study_sessions',
-          callback: (payload) => _onChange(payload, uid),
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
           table: 'device_registrations',
           callback: (payload) => _onDeviceRegChange(payload, uid),
         )
         .subscribe();
-  }
-
-  void _onChange(PostgresChangePayload payload, String uid) {
-    // 내 기기의 데이터만 반응
-    final newRecord = payload.newRecord;
-    if (newRecord['user_id'] != uid) return;
-
-    // 연속 호출 방지 (300ms debounce)
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () {
-      _pullAndRefresh();
-    });
-  }
-
-  Future<void> _pullAndRefresh() async {
-    final result = await SupabaseSyncService(_db).pullAll();
-    if (result.success) {
-      _ref.invalidate(categoryViewModelProvider);
-      _ref.invalidate(subjectViewModelProvider);
-      _ref.invalidate(statsViewModelProvider);
-    }
   }
 
   void _onDeviceRegChange(PostgresChangePayload payload, String uid) {
@@ -161,7 +111,6 @@ class RealtimeSyncManager {
 
   /// 구독 해제
   void stop() {
-    _debounce?.cancel();
     _channel?.unsubscribe();
     _channel = null;
   }
