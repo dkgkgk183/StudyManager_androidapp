@@ -90,20 +90,6 @@ class SupabaseSyncService {
     });
   }
 
-  Future<void> syncPlan(StudyPlan plan) async {
-    final uid = await getOrCreateDeviceId();
-    await _supabase.from('study_plans').upsert({
-      'id': plan.id,
-      'user_id': uid,
-      'subject_id': plan.subjectId,
-      'target_date': plan.targetDate.toIso8601String(),
-      'goal_minutes': plan.goalMinutes,
-      'memo': plan.memo,
-      'is_completed': plan.isCompleted,
-      'created_at': plan.createdAt.toIso8601String(),
-    });
-  }
-
   Future<void> syncSession(StudySession session) async {
     final uid = await getOrCreateDeviceId();
     await _supabase.from('study_sessions').upsert({
@@ -116,6 +102,21 @@ class SupabaseSyncService {
       'duration_seconds': session.durationSeconds,
       'tray_open_count': session.trayOpenCount,
       'self_score': session.selfScore,
+      'penalty_count': session.penaltyCount,
+    });
+  }
+
+  Future<void> syncChecklistItem(ChecklistItem item) async {
+    final uid = await getOrCreateDeviceId();
+    await _supabase.from('checklist_items').upsert({
+      'id': item.id,
+      'user_id': uid,
+      'subject_id': item.subjectId,
+      'date': item.date,
+      'text': item.content,
+      'is_checked': item.isChecked,
+      'sort_order': item.sortOrder,
+      'created_at': item.createdAt.toIso8601String(),
     });
   }
 
@@ -133,29 +134,29 @@ class SupabaseSyncService {
         .eq('id', id).eq('user_id', uid);
   }
 
-  Future<void> deletePlan(String id) async {
-    final uid = await getOrCreateDeviceId();
-    await _supabase.from('study_plans').delete()
-        .eq('id', id).eq('user_id', uid);
-  }
-
   Future<void> deleteSession(String id) async {
     final uid = await getOrCreateDeviceId();
     await _supabase.from('study_sessions').delete()
         .eq('id', id).eq('user_id', uid);
   }
 
-  Future<void> deletePlans(List<String> ids) async {
-    if (ids.isEmpty) return;
-    final uid = await getOrCreateDeviceId();
-    await _supabase.from('study_plans').delete()
-        .inFilter('id', ids).eq('user_id', uid);
-  }
-
   Future<void> deleteSessions(List<String> ids) async {
     if (ids.isEmpty) return;
     final uid = await getOrCreateDeviceId();
     await _supabase.from('study_sessions').delete()
+        .inFilter('id', ids).eq('user_id', uid);
+  }
+
+  Future<void> deleteChecklistItem(String id) async {
+    final uid = await getOrCreateDeviceId();
+    await _supabase.from('checklist_items').delete()
+        .eq('id', id).eq('user_id', uid);
+  }
+
+  Future<void> deleteChecklistItems(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final uid = await getOrCreateDeviceId();
+    await _supabase.from('checklist_items').delete()
         .inFilter('id', ids).eq('user_id', uid);
   }
 
@@ -202,21 +203,21 @@ class SupabaseSyncService {
         restored++;
       }
 
-      // 3. 계획
-      final plans = await _supabase
-          .from('study_plans')
+      // 3. 체크리스트
+      final checklists = await _supabase
+          .from('checklist_items')
           .select()
           .eq('user_id', uid)
-          .order('target_date');
+          .order('sort_order');
 
-      for (final row in plans) {
-        await _db.insertPlan(StudyPlansCompanion.insert(
+      for (final row in checklists) {
+        await _db.insertChecklistItem(ChecklistItemsCompanion.insert(
           id: row['id'] as String,
           subjectId: row['subject_id'] as String,
-          targetDate: DateTime.parse(row['target_date'] as String),
-          goalMinutes: row['goal_minutes'] as int,
-          memo: drift.Value(row['memo'] as String? ?? ''),
-          isCompleted: drift.Value(row['is_completed'] as bool? ?? false),
+          date: row['date'] as String,
+          content: row['text'] as String,
+          isChecked: drift.Value(row['is_checked'] as bool? ?? false),
+          sortOrder: drift.Value(row['sort_order'] as int? ?? 0),
           createdAt: DateTime.parse(row['created_at'] as String),
         ));
         restored++;
@@ -243,6 +244,7 @@ class SupabaseSyncService {
           trayOpenCount:
           drift.Value(row['tray_open_count'] as int? ?? 0),
           selfScore: drift.Value(row['self_score'] as int? ?? 0),
+          penaltyCount: drift.Value(row['penalty_count'] as int? ?? 0),
         ));
         restored++;
       }
@@ -276,9 +278,9 @@ class SupabaseSyncService {
         pushed++;
       }
 
-      final plans = await _db.getAllPlans();
-      for (final p in plans) {
-        await syncPlan(p);
+      final checklistItems = await _db.getAllChecklistItems();
+      for (final item in checklistItems) {
+        await syncChecklistItem(item);
         pushed++;
       }
 

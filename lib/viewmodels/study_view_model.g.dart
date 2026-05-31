@@ -6,7 +6,7 @@ part of 'study_view_model.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$categoryViewModelHash() => r'83926e7642a07660f351009bdfdfa1479d9ee3a6';
+String _$categoryViewModelHash() => r'55584aeea28de4ed624e7e8459b1c40527189f5c';
 
 /// See also [CategoryViewModel].
 @ProviderFor(CategoryViewModel)
@@ -26,7 +26,7 @@ final categoryViewModelProvider =
 
 typedef _$CategoryViewModel =
     AutoDisposeAsyncNotifier<List<Map<String, dynamic>>>;
-String _$subjectViewModelHash() => r'cf7af718630143dffc990acdd05ce76f1d5599a2';
+String _$subjectViewModelHash() => r'e62aa9ffede256aeea47790604984b0dc114e0ef';
 
 /// See also [SubjectViewModel].
 @ProviderFor(SubjectViewModel)
@@ -42,8 +42,8 @@ final subjectViewModelProvider =
     );
 
 typedef _$SubjectViewModel = AutoDisposeAsyncNotifier<List<Subject>>;
-String _$studyPlanViewModelHash() =>
-    r'9ff31311a15fcea875cb5c57cd3c765a31c17dc5';
+String _$studySessionViewModelHash() =>
+    r'8f626b2f6d7029b747b6bbb50a74c02dc42f475c';
 
 /// Copied from Dart SDK
 class _SystemHash {
@@ -65,302 +65,6 @@ class _SystemHash {
     return 0x1fffffff & (hash + ((0x00003fff & hash) << 15));
   }
 }
-
-abstract class _$StudyPlanViewModel
-    extends BuildlessAutoDisposeAsyncNotifier<List<Map<String, dynamic>>> {
-  late final DateTime date;
-
-  FutureOr<List<Map<String, dynamic>>> build(DateTime date);
-}
-
-/// See also [StudyPlanViewModel].
-@ProviderFor(StudyPlanViewModel)
-const studyPlanViewModelProvider = StudyPlanViewModelFamily();
-
-/// See also [StudyPlanViewModel].
-class StudyPlanViewModelFamily
-    extends Family<AsyncValue<List<Map<String, dynamic>>>> {
-  /// See also [StudyPlanViewModel].
-  const StudyPlanViewModelFamily();
-
-  /// See also [StudyPlanViewModel].
-  StudyPlanViewModelProvider call(DateTime date) {
-    return StudyPlanViewModelProvider(date);
-  }
-
-  @override
-  StudyPlanViewModelProvider getProviderOverride(
-    covariant StudyPlanViewModelProvider provider,
-  ) {
-    return call(provider.date);
-  }
-
-  static const Iterable<ProviderOrFamily>? _dependencies = null;
-
-  @override
-  Iterable<ProviderOrFamily>? get dependencies => _dependencies;
-
-  static const Iterable<ProviderOrFamily>? _allTransitiveDependencies = null;
-
-  @override
-  Iterable<ProviderOrFamily>? get allTransitiveDependencies =>
-      _allTransitiveDependencies;
-
-  @override
-  String? get name => r'studyPlanViewModelProvider';
-}
-
-/// See also [StudyPlanViewModel].
-class StudyPlanViewModelProvider
-    extends
-        AutoDisposeAsyncNotifierProviderImpl<
-          StudyPlanViewModel,
-          List<Map<String, dynamic>>
-        > {
-  /// See also [StudyPlanViewModel].
-  StudyPlanViewModelProvider(DateTime date)
-    : this._internal(
-        () => StudyPlanViewModel()..date = date,
-        from: studyPlanViewModelProvider,
-        name: r'studyPlanViewModelProvider',
-        debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-            ? null
-            : _$studyPlanViewModelHash,
-        dependencies: StudyPlanViewModelFamily._dependencies,
-        allTransitiveDependencies:
-            StudyPlanViewModelFamily._allTransitiveDependencies,
-        date: date,
-      );
-
-  StudyPlanViewModelProvider._internal(
-    super._createNotifier, {
-    required super.name,
-    required super.dependencies,
-    required super.allTransitiveDependencies,
-    required super.debugGetCreateSourceHash,
-    required super.from,
-    required this.date,
-  }) : super.internal();
-
-  final DateTime date;
-
-  @override
-  FutureOr<List<Map<String, dynamic>>> runNotifierBuild(
-    covariant StudyPlanViewModel notifier,
-  ) {
-    return notifier.build(date);
-  }
-
-  @override
-  Override overrideWith(StudyPlanViewModel Function() create) {
-    return ProviderOverride(
-      origin: this,
-      override: StudyPlanViewModelProvider._internal(
-        () => create()..date = date,
-        from: from,
-        name: null,
-        dependencies: null,
-        allTransitiveDependencies: null,
-        debugGetCreateSourceHash: null,
-        date: date,
-      ),
-    );
-  }
-
-  @override
-  AutoDisposeAsyncNotifierProviderElement<
-    StudyPlanViewModel,
-    List<Map<String, dynamic>>
-  >
-  createElement() {
-    return _StudyPlanViewModelProviderElement(this);
-  }
-
-  @override
-  bool operator ==(Object other) {
-    return other is StudyPlanViewModelProvider && other.date == date;
-  }
-
-  @override
-  int get hashCode {
-    var hash = _SystemHash.combine(0, runtimeType.hashCode);
-    hash = _SystemHash.combine(hash, date.hashCode);
-
-    return _SystemHash.finish(hash);
-  }
-}
-
-@Deprecated('Will be removed in 3.0. Use Ref instead')
-// ignore: unused_element
-mixin StudyPlanViewModelRef
-    on AutoDisposeAsyncNotifierProviderRef<List<Map<String, dynamic>>> {
-  /// The parameter `date` of this provider.
-  DateTime get date;
-}
-
-class _StudyPlanViewModelProviderElement
-    extends
-        AutoDisposeAsyncNotifierProviderElement<
-          StudyPlanViewModel,
-          List<Map<String, dynamic>>
-        >
-    with StudyPlanViewModelRef {
-  _StudyPlanViewModelProviderElement(super.provider);
-
-  @override
-  DateTime get date => (origin as StudyPlanViewModelProvider).date;
-}
-
-String _$todayPlanViewModelHash() =>
-    r'82bbdbef82d2f195c000671953cc274aff3018f9';
-
-abstract class _$TodayPlanViewModel
-    extends BuildlessAutoDisposeAsyncNotifier<List<Map<String, dynamic>>> {
-  late final DateTime date;
-
-  FutureOr<List<Map<String, dynamic>>> build(DateTime date);
-}
-
-/// See also [TodayPlanViewModel].
-@ProviderFor(TodayPlanViewModel)
-const todayPlanViewModelProvider = TodayPlanViewModelFamily();
-
-/// See also [TodayPlanViewModel].
-class TodayPlanViewModelFamily
-    extends Family<AsyncValue<List<Map<String, dynamic>>>> {
-  /// See also [TodayPlanViewModel].
-  const TodayPlanViewModelFamily();
-
-  /// See also [TodayPlanViewModel].
-  TodayPlanViewModelProvider call(DateTime date) {
-    return TodayPlanViewModelProvider(date);
-  }
-
-  @override
-  TodayPlanViewModelProvider getProviderOverride(
-    covariant TodayPlanViewModelProvider provider,
-  ) {
-    return call(provider.date);
-  }
-
-  static const Iterable<ProviderOrFamily>? _dependencies = null;
-
-  @override
-  Iterable<ProviderOrFamily>? get dependencies => _dependencies;
-
-  static const Iterable<ProviderOrFamily>? _allTransitiveDependencies = null;
-
-  @override
-  Iterable<ProviderOrFamily>? get allTransitiveDependencies =>
-      _allTransitiveDependencies;
-
-  @override
-  String? get name => r'todayPlanViewModelProvider';
-}
-
-/// See also [TodayPlanViewModel].
-class TodayPlanViewModelProvider
-    extends
-        AutoDisposeAsyncNotifierProviderImpl<
-          TodayPlanViewModel,
-          List<Map<String, dynamic>>
-        > {
-  /// See also [TodayPlanViewModel].
-  TodayPlanViewModelProvider(DateTime date)
-    : this._internal(
-        () => TodayPlanViewModel()..date = date,
-        from: todayPlanViewModelProvider,
-        name: r'todayPlanViewModelProvider',
-        debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
-            ? null
-            : _$todayPlanViewModelHash,
-        dependencies: TodayPlanViewModelFamily._dependencies,
-        allTransitiveDependencies:
-            TodayPlanViewModelFamily._allTransitiveDependencies,
-        date: date,
-      );
-
-  TodayPlanViewModelProvider._internal(
-    super._createNotifier, {
-    required super.name,
-    required super.dependencies,
-    required super.allTransitiveDependencies,
-    required super.debugGetCreateSourceHash,
-    required super.from,
-    required this.date,
-  }) : super.internal();
-
-  final DateTime date;
-
-  @override
-  FutureOr<List<Map<String, dynamic>>> runNotifierBuild(
-    covariant TodayPlanViewModel notifier,
-  ) {
-    return notifier.build(date);
-  }
-
-  @override
-  Override overrideWith(TodayPlanViewModel Function() create) {
-    return ProviderOverride(
-      origin: this,
-      override: TodayPlanViewModelProvider._internal(
-        () => create()..date = date,
-        from: from,
-        name: null,
-        dependencies: null,
-        allTransitiveDependencies: null,
-        debugGetCreateSourceHash: null,
-        date: date,
-      ),
-    );
-  }
-
-  @override
-  AutoDisposeAsyncNotifierProviderElement<
-    TodayPlanViewModel,
-    List<Map<String, dynamic>>
-  >
-  createElement() {
-    return _TodayPlanViewModelProviderElement(this);
-  }
-
-  @override
-  bool operator ==(Object other) {
-    return other is TodayPlanViewModelProvider && other.date == date;
-  }
-
-  @override
-  int get hashCode {
-    var hash = _SystemHash.combine(0, runtimeType.hashCode);
-    hash = _SystemHash.combine(hash, date.hashCode);
-
-    return _SystemHash.finish(hash);
-  }
-}
-
-@Deprecated('Will be removed in 3.0. Use Ref instead')
-// ignore: unused_element
-mixin TodayPlanViewModelRef
-    on AutoDisposeAsyncNotifierProviderRef<List<Map<String, dynamic>>> {
-  /// The parameter `date` of this provider.
-  DateTime get date;
-}
-
-class _TodayPlanViewModelProviderElement
-    extends
-        AutoDisposeAsyncNotifierProviderElement<
-          TodayPlanViewModel,
-          List<Map<String, dynamic>>
-        >
-    with TodayPlanViewModelRef {
-  _TodayPlanViewModelProviderElement(super.provider);
-
-  @override
-  DateTime get date => (origin as TodayPlanViewModelProvider).date;
-}
-
-String _$studySessionViewModelHash() =>
-    r'af34426bc752234f475d82fde2e4f0dae35fc222';
 
 abstract class _$StudySessionViewModel
     extends BuildlessAutoDisposeAsyncNotifier<List<Map<String, dynamic>>> {
@@ -507,7 +211,155 @@ class _StudySessionViewModelProviderElement
   DateTime get date => (origin as StudySessionViewModelProvider).date;
 }
 
-String _$statsViewModelHash() => r'4bebfbc19e7cdd807d18e9511512133468dd0a26';
+String _$todayChecklistViewModelHash() =>
+    r'708ddef151800cf2ba2f2c5b3f615133756a8288';
+
+abstract class _$TodayChecklistViewModel
+    extends BuildlessAutoDisposeAsyncNotifier<List<Map<String, dynamic>>> {
+  late final DateTime date;
+
+  FutureOr<List<Map<String, dynamic>>> build(DateTime date);
+}
+
+/// See also [TodayChecklistViewModel].
+@ProviderFor(TodayChecklistViewModel)
+const todayChecklistViewModelProvider = TodayChecklistViewModelFamily();
+
+/// See also [TodayChecklistViewModel].
+class TodayChecklistViewModelFamily
+    extends Family<AsyncValue<List<Map<String, dynamic>>>> {
+  /// See also [TodayChecklistViewModel].
+  const TodayChecklistViewModelFamily();
+
+  /// See also [TodayChecklistViewModel].
+  TodayChecklistViewModelProvider call(DateTime date) {
+    return TodayChecklistViewModelProvider(date);
+  }
+
+  @override
+  TodayChecklistViewModelProvider getProviderOverride(
+    covariant TodayChecklistViewModelProvider provider,
+  ) {
+    return call(provider.date);
+  }
+
+  static const Iterable<ProviderOrFamily>? _dependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get dependencies => _dependencies;
+
+  static const Iterable<ProviderOrFamily>? _allTransitiveDependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get allTransitiveDependencies =>
+      _allTransitiveDependencies;
+
+  @override
+  String? get name => r'todayChecklistViewModelProvider';
+}
+
+/// See also [TodayChecklistViewModel].
+class TodayChecklistViewModelProvider
+    extends
+        AutoDisposeAsyncNotifierProviderImpl<
+          TodayChecklistViewModel,
+          List<Map<String, dynamic>>
+        > {
+  /// See also [TodayChecklistViewModel].
+  TodayChecklistViewModelProvider(DateTime date)
+    : this._internal(
+        () => TodayChecklistViewModel()..date = date,
+        from: todayChecklistViewModelProvider,
+        name: r'todayChecklistViewModelProvider',
+        debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+            ? null
+            : _$todayChecklistViewModelHash,
+        dependencies: TodayChecklistViewModelFamily._dependencies,
+        allTransitiveDependencies:
+            TodayChecklistViewModelFamily._allTransitiveDependencies,
+        date: date,
+      );
+
+  TodayChecklistViewModelProvider._internal(
+    super._createNotifier, {
+    required super.name,
+    required super.dependencies,
+    required super.allTransitiveDependencies,
+    required super.debugGetCreateSourceHash,
+    required super.from,
+    required this.date,
+  }) : super.internal();
+
+  final DateTime date;
+
+  @override
+  FutureOr<List<Map<String, dynamic>>> runNotifierBuild(
+    covariant TodayChecklistViewModel notifier,
+  ) {
+    return notifier.build(date);
+  }
+
+  @override
+  Override overrideWith(TodayChecklistViewModel Function() create) {
+    return ProviderOverride(
+      origin: this,
+      override: TodayChecklistViewModelProvider._internal(
+        () => create()..date = date,
+        from: from,
+        name: null,
+        dependencies: null,
+        allTransitiveDependencies: null,
+        debugGetCreateSourceHash: null,
+        date: date,
+      ),
+    );
+  }
+
+  @override
+  AutoDisposeAsyncNotifierProviderElement<
+    TodayChecklistViewModel,
+    List<Map<String, dynamic>>
+  >
+  createElement() {
+    return _TodayChecklistViewModelProviderElement(this);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is TodayChecklistViewModelProvider && other.date == date;
+  }
+
+  @override
+  int get hashCode {
+    var hash = _SystemHash.combine(0, runtimeType.hashCode);
+    hash = _SystemHash.combine(hash, date.hashCode);
+
+    return _SystemHash.finish(hash);
+  }
+}
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+mixin TodayChecklistViewModelRef
+    on AutoDisposeAsyncNotifierProviderRef<List<Map<String, dynamic>>> {
+  /// The parameter `date` of this provider.
+  DateTime get date;
+}
+
+class _TodayChecklistViewModelProviderElement
+    extends
+        AutoDisposeAsyncNotifierProviderElement<
+          TodayChecklistViewModel,
+          List<Map<String, dynamic>>
+        >
+    with TodayChecklistViewModelRef {
+  _TodayChecklistViewModelProviderElement(super.provider);
+
+  @override
+  DateTime get date => (origin as TodayChecklistViewModelProvider).date;
+}
+
+String _$statsViewModelHash() => r'e05917fcdb7df5a541dc08b5f2bf854e5caf8da1';
 
 /// See also [StatsViewModel].
 @ProviderFor(StatsViewModel)

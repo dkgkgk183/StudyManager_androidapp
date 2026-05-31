@@ -67,13 +67,13 @@ class CategoryViewModel extends _$CategoryViewModel {
     final subs = await database.getSubjectsByCategory(categoryId);
 
     // Supabase 삭제를 위해 모든 과목의 ID 먼저 수집 (로컬 삭제 전에!)
-    final allPlans = await database.getAllPlans();
+    final allChecklists = await database.getAllChecklistItems();
     final allSessions = await database.getAllSessions();
-    final Set<String> planIds = {};
+    final Set<String> checklistIds = {};
     final Set<String> sessionIds = {};
     for (final sub in subs) {
-      for (final p in allPlans.where((p) => p.subjectId == sub.id)) {
-        planIds.add(p.id);
+      for (final c in allChecklists.where((c) => c.subjectId == sub.id)) {
+        checklistIds.add(c.id);
       }
       for (final s in allSessions.where((s) => s.subjectId == sub.id)) {
         sessionIds.add(s.id);
@@ -82,16 +82,16 @@ class CategoryViewModel extends _$CategoryViewModel {
 
     for (final sub in subs) {
       await database.deleteSessionsBySubject(sub.id);
-      await database.deletePlansBySubject(sub.id);
+      await database.deleteChecklistItemsBySubject(sub.id);
       await database.deleteSubject(sub.id);
 
       await _safeSync('deleteCategory/subject',
               (svc) => svc.deleteSubject(sub.id), database);
     }
 
-    // Supabase에서 계획/세션 일괄 삭제
-    await _safeSync('deleteCategory/plans+sessions',
-            (svc) => _deletePlanAndSessionsBySubject(svc, planIds.toList(), sessionIds.toList()), database);
+    // Supabase에서 체크리스트/세션 일괄 삭제
+    await _safeSync('deleteCategory/checklists+sessions',
+            (svc) => _deleteChecklistsAndSessionsBySubject(svc, checklistIds.toList(), sessionIds.toList()), database);
 
     await database.deleteCategory(categoryId);
     await _safeSync('deleteCategory',
@@ -126,10 +126,10 @@ class CategoryViewModel extends _$CategoryViewModel {
   }
 }
 
-// Supabase에서 특정 과목의 계획/세션 삭제 (미리 수집된 ID로 일괄 삭제)
-Future<void> _deletePlanAndSessionsBySubject(
-    SupabaseSyncService svc, List<String> planIds, List<String> sessionIds) async {
-  await svc.deletePlans(planIds);
+// Supabase에서 특정 과목의 체크리스트/세션 삭제 (미리 수집된 ID로 일괄 삭제)
+Future<void> _deleteChecklistsAndSessionsBySubject(
+    SupabaseSyncService svc, List<String> checklistIds, List<String> sessionIds) async {
+  await svc.deleteChecklistItems(checklistIds);
   await svc.deleteSessions(sessionIds);
 }
 
@@ -172,244 +172,23 @@ class SubjectViewModel extends _$SubjectViewModel {
 
   Future<void> deleteSubject(String id) async {
     // Supabase 삭제를 위해 ID 먼저 수집 (로컬 삭제 전에!)
-    final allPlans = await database.getAllPlans();
+    final allChecklists = await database.getAllChecklistItems();
     final allSessions = await database.getAllSessions();
-    final planIds = allPlans.where((p) => p.subjectId == id).map((p) => p.id).toList();
+    final checklistIds = allChecklists.where((c) => c.subjectId == id).map((c) => c.id).toList();
     final sessionIds = allSessions.where((s) => s.subjectId == id).map((s) => s.id).toList();
 
     await database.deleteSessionsBySubject(id);
-    await database.deletePlansBySubject(id);
+    await database.deleteChecklistItemsBySubject(id);
     await database.deleteSubject(id);
 
-    await _safeSync('deleteSubject/plans+sessions',
-            (svc) => _deletePlanAndSessionsBySubject(svc, planIds, sessionIds), database);
+    await _safeSync('deleteSubject/checklists+sessions',
+            (svc) => _deleteChecklistsAndSessionsBySubject(svc, checklistIds, sessionIds), database);
     await _safeSync(
         'deleteSubject', (svc) => svc.deleteSubject(id), database);
 
     ref.invalidateSelf();
     ref.invalidate(categoryViewModelProvider);
     ref.invalidate(statsViewModelProvider);
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// StudyPlanViewModel
-// ─────────────────────────────────────────────────────────────
-
-@riverpod
-class StudyPlanViewModel extends _$StudyPlanViewModel {
-  @override
-  Future<List<Map<String, dynamic>>> build(DateTime date) async {
-    debugPrint('[ViewModel.build] date=$date, isUtc=${date.isUtc}, hour=${date.hour}');
-    // DEBUG: 모든 plan 확인
-    await database.debugAllPlanDates();
-    final results = await database.getPlansWithSubject(date).get();
-    debugPrint('[ViewModel.build] found ${results.length} plans');
-    return results.map((row) => {
-      'plan': row.readTable(database.studyPlans),
-      'subject': row.readTable(database.subjects),
-    }).toList()
-      ..forEach((item) {
-        final p = item['plan'] as StudyPlan;
-        debugPrint('[ViewModel.build] plan targetDate=${p.targetDate}, '
-            'isUtc=${p.targetDate.isUtc}, ms=${p.targetDate.millisecondsSinceEpoch}');
-      });
-  }
-
-  Future<void> addPlan({
-    required String subjectId,
-    required DateTime targetDate,
-    required int goalMinutes,
-    String memo = '',
-  }) async {
-    final id = _generateId();
-    final now = DateTime.now();
-    debugPrint('[addPlan] targetDate=$targetDate, isUtc=${targetDate.isUtc}, '
-        'hour=${targetDate.hour}, ms=${targetDate.millisecondsSinceEpoch}');
-
-    await database.insertPlan(StudyPlansCompanion.insert(
-      id: id,
-      subjectId: subjectId,
-      targetDate: targetDate,
-      goalMinutes: goalMinutes,
-      memo: drift.Value(memo),
-      createdAt: now,
-    ));
-
-    // DEBUG: raw DB 값 확인
-    await database.debugRawTargetDate(id);
-
-    await _safeSync('addPlan', (svc) => svc.syncPlan(StudyPlan(
-      id: id,
-      subjectId: subjectId,
-      targetDate: targetDate,
-      goalMinutes: goalMinutes,
-      memo: memo,
-      isCompleted: false,
-      createdAt: now,
-    )), database);
-
-    ref.invalidateSelf();
-  }
-
-  Future<void> toggleComplete(String planId, bool completed) async {
-    await database.markPlanCompleted(planId, completed);
-
-    final plans = await database.getAllPlans();
-    final plan = plans.where((p) => p.id == planId).firstOrNull;
-    if (plan != null) {
-      await _safeSync(
-          'toggleComplete', (svc) => svc.syncPlan(plan), database);
-    }
-
-    ref.invalidateSelf();
-  }
-
-  Future<void> deletePlan(String planId) async {
-    await database.deletePlan(planId);
-    await _safeSync(
-        'deletePlan', (svc) => svc.deletePlan(planId), database);
-    ref.invalidateSelf();
-  }
-
-  // ── 해당 날짜 계획 전체 삭제 ─────────────────────────
-  Future<void> deleteAllPlansForDate(DateTime date) async {
-    final plans = await database.getPlansByCalendarDay(date);
-    final planIds = plans.map((p) => p.id).toList();
-
-    await database.deletePlansByDate(date);
-
-    if (planIds.isNotEmpty) {
-      await _safeSync('deleteAllPlansForDate',
-              (svc) => svc.deletePlans(planIds), database);
-    }
-    ref.invalidateSelf();
-  }
-
-  Future<void> addPlansFromAI(List<Map<String, dynamic>> plans) async {
-    for (final plan in plans) {
-      final id = _generateId();
-      final now = DateTime.now();
-      final subjectId = plan['subjectId'] as String;
-      final targetDate = plan['targetDate'] as DateTime;
-      final goalMinutes = plan['goalMinutes'] as int;
-      final memo = plan['memo'] as String? ?? '';
-
-      await database.insertPlan(StudyPlansCompanion.insert(
-        id: id,
-        subjectId: subjectId,
-        targetDate: targetDate,
-        goalMinutes: goalMinutes,
-        memo: drift.Value(memo),
-        createdAt: now,
-      ));
-
-      await _safeSync('addPlansFromAI', (svc) => svc.syncPlan(StudyPlan(
-        id: id,
-        subjectId: subjectId,
-        targetDate: targetDate,
-        goalMinutes: goalMinutes,
-        memo: memo,
-        isCompleted: false,
-        createdAt: now,
-      )), database);
-    }
-    ref.invalidateSelf();
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// TodayPlanViewModel — 캘린더일(00:00~23:59) 기준, 오늘 탭 전용
-// ─────────────────────────────────────────────────────────────
-
-@riverpod
-class TodayPlanViewModel extends _$TodayPlanViewModel {
-  @override
-  Future<List<Map<String, dynamic>>> build(DateTime date) async {
-    final results = await database.getPlansWithSubjectByCalendarDay(date).get();
-    return results.map((row) => {
-      'plan': row.readTable(database.studyPlans),
-      'subject': row.readTable(database.subjects),
-    }).toList();
-  }
-
-  Future<void> addPlan({
-    required String subjectId,
-    required DateTime targetDate,
-    required int goalMinutes,
-    String memo = '',
-  }) async {
-    final id = _generateId();
-    final now = DateTime.now();
-    await database.insertPlan(StudyPlansCompanion.insert(
-      id: id,
-      subjectId: subjectId,
-      targetDate: targetDate,
-      goalMinutes: goalMinutes,
-      memo: drift.Value(memo),
-      createdAt: now,
-    ));
-    await _safeSync('addPlan', (svc) => svc.syncPlan(StudyPlan(
-      id: id,
-      subjectId: subjectId,
-      targetDate: targetDate,
-      goalMinutes: goalMinutes,
-      memo: memo,
-      isCompleted: false,
-      createdAt: now,
-    )), database);
-    ref.invalidateSelf();
-  }
-
-  Future<void> updatePlan({
-    required String planId,
-    String? subjectId,
-    DateTime? targetDate,
-    int? goalMinutes,
-    String? memo,
-  }) async {
-    final plans = await database.getAllPlans();
-    final existing = plans.where((p) => p.id == planId).firstOrNull;
-    if (existing == null) return;
-
-    final updated = existing.copyWith(
-      subjectId: subjectId ?? existing.subjectId,
-      targetDate: targetDate ?? existing.targetDate,
-      goalMinutes: goalMinutes ?? existing.goalMinutes,
-      memo: memo ?? existing.memo,
-    );
-    await database.updatePlan(updated);
-    await _safeSync('updatePlan', (svc) => svc.syncPlan(updated), database);
-    ref.invalidateSelf();
-  }
-
-  Future<void> toggleComplete(String planId, bool completed) async {
-    await database.markPlanCompleted(planId, completed);
-    final plans = await database.getAllPlans();
-    final plan = plans.where((p) => p.id == planId).firstOrNull;
-    if (plan != null) {
-      await _safeSync(
-          'toggleComplete', (svc) => svc.syncPlan(plan), database);
-    }
-    ref.invalidateSelf();
-  }
-
-  Future<void> deletePlan(String planId) async {
-    await database.deletePlan(planId);
-    await _safeSync(
-        'deletePlan', (svc) => svc.deletePlan(planId), database);
-    ref.invalidateSelf();
-  }
-
-  Future<void> deleteAllPlansForDate(DateTime date) async {
-    final plans = await database.getPlansByCalendarDay(date);
-    final planIds = plans.map((p) => p.id).toList();
-    await database.deletePlansByDate(date);
-    if (planIds.isNotEmpty) {
-      await _safeSync('deleteAllPlansForDate',
-              (svc) => svc.deletePlans(planIds), database);
-    }
-    ref.invalidateSelf();
   }
 }
 
@@ -451,6 +230,7 @@ class StudySessionViewModel extends _$StudySessionViewModel {
       durationSeconds: 0,
       trayOpenCount: 0,
       selfScore: 0,
+      penaltyCount: 0,
     )), database);
 
     ref.invalidateSelf();
@@ -483,6 +263,16 @@ class StudySessionViewModel extends _$StudySessionViewModel {
     ref.invalidateSelf();
   }
 
+  Future<void> recordPenalty(String sessionId) async {
+    final sessions = await database.getAllSessions();
+    final session = sessions.firstWhere((s) => s.id == sessionId);
+    final updated = session.copyWith(penaltyCount: session.penaltyCount + 1);
+    await database.updateSession(updated);
+    await _safeSync(
+        'recordPenalty', (svc) => svc.syncSession(updated), database);
+    ref.invalidateSelf();
+  }
+
   Future<void> setScore(String sessionId, int score) async {
     final sessions = await database.getAllSessions();
     final session = sessions.firstWhere((s) => s.id == sessionId);
@@ -502,6 +292,111 @@ class StudySessionViewModel extends _$StudySessionViewModel {
 }
 
 // ─────────────────────────────────────────────────────────────
+// TodayChecklistViewModel
+// ─────────────────────────────────────────────────────────────
+
+@riverpod
+class TodayChecklistViewModel extends _$TodayChecklistViewModel {
+  @override
+  Future<List<Map<String, dynamic>>> build(DateTime date) async {
+    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final results = await database.getChecklistItemsWithSubject(dateStr).get();
+    return results.map((row) => {
+      'item': row.readTable(database.checklistItems),
+      'subject': row.readTable(database.subjects),
+    }).toList();
+  }
+
+  Future<void> addItem(String subjectId, String text) async {
+    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final items = await database.getChecklistItemsByDate(dateStr);
+    final id = _generateId();
+
+    await database.insertChecklistItem(ChecklistItemsCompanion.insert(
+      id: id,
+      subjectId: subjectId,
+      date: dateStr,
+      content: text,
+      sortOrder: drift.Value(items.length),
+      createdAt: DateTime.now(),
+    ));
+
+    await _safeSync('addChecklistItem', (svc) => svc.syncChecklistItem(
+      ChecklistItem(
+        id: id,
+        subjectId: subjectId,
+        date: dateStr,
+        content: text,
+        isChecked: false,
+        sortOrder: items.length,
+        createdAt: DateTime.now(),
+      ),
+    ), database);
+
+    ref.invalidateSelf();
+  }
+
+  Future<void> toggleItem(String itemId, bool isChecked) async {
+    await database.toggleChecklistItem(itemId, isChecked);
+    ref.invalidateSelf();
+  }
+
+  Future<void> deleteItem(String itemId) async {
+    await database.deleteChecklistItem(itemId);
+    await _safeSync(
+        'deleteChecklistItem', (svc) => svc.deleteChecklistItem(itemId), database);
+    ref.invalidateSelf();
+  }
+
+  Future<void> deleteAll() async {
+    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final items = await database.getChecklistItemsByDate(dateStr);
+    final ids = items.map((item) => item.id).toList();
+
+    await database.deleteChecklistItemsByDate(dateStr);
+    await _safeSync('deleteAllChecklistItems',
+        (svc) => svc.deleteChecklistItems(ids), database);
+    ref.invalidateSelf();
+  }
+
+  /// AI에서 벌크 추가
+  Future<void> addItemsFromAI(List<Map<String, dynamic>> items) async {
+    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final now = DateTime.now();
+    final current = await database.getChecklistItemsByDate(dateStr);
+    int sortOrder = current.length;
+
+    for (final input in items) {
+      final id = _generateId();
+
+      await database.insertChecklistItem(ChecklistItemsCompanion.insert(
+        id: id,
+        subjectId: input['subjectId'] as String,
+        date: dateStr,
+        content: input['text'] as String,
+        sortOrder: drift.Value(sortOrder),
+        createdAt: now,
+      ));
+
+      await _safeSync(
+          'addItemsFromAI', (svc) => svc.syncChecklistItem(
+        ChecklistItem(
+          id: id,
+          subjectId: input['subjectId'] as String,
+          date: dateStr,
+          content: input['text'] as String,
+          isChecked: false,
+          sortOrder: sortOrder,
+          createdAt: now,
+        ),
+      ), database);
+      sortOrder++;
+    }
+    ref.invalidateSelf();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // StatsViewModel
 // ─────────────────────────────────────────────────────────────
 
@@ -510,4 +405,9 @@ class StatsViewModel extends _$StatsViewModel {
   @override
   Future<List<Map<String, dynamic>>> build() =>
       database.getTotalSecondsBySubject();
+
+  Future<int> getTotalPenaltyCount() async {
+    final sessions = await database.getAllSessions();
+    return sessions.fold<int>(0, (sum, s) => sum + s.penaltyCount);
+  }
 }

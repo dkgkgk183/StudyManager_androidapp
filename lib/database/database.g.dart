@@ -568,12 +568,12 @@ class SubjectsCompanion extends UpdateCompanion<Subject> {
   }
 }
 
-class $StudyPlansTable extends StudyPlans
-    with TableInfo<$StudyPlansTable, StudyPlan> {
+class $ChecklistItemsTable extends ChecklistItems
+    with TableInfo<$ChecklistItemsTable, ChecklistItem> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
-  $StudyPlansTable(this.attachedDatabase, [this._alias]);
+  $ChecklistItemsTable(this.attachedDatabase, [this._alias]);
   static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
   late final GeneratedColumn<String> id = GeneratedColumn<String>(
@@ -594,52 +594,52 @@ class $StudyPlansTable extends StudyPlans
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
-  static const VerificationMeta _targetDateMeta = const VerificationMeta(
-    'targetDate',
-  );
+  static const VerificationMeta _dateMeta = const VerificationMeta('date');
   @override
-  late final GeneratedColumn<DateTime> targetDate = GeneratedColumn<DateTime>(
-    'target_date',
-    aliasedName,
-    false,
-    type: DriftSqlType.dateTime,
-    requiredDuringInsert: true,
-  );
-  static const VerificationMeta _goalMinutesMeta = const VerificationMeta(
-    'goalMinutes',
-  );
-  @override
-  late final GeneratedColumn<int> goalMinutes = GeneratedColumn<int>(
-    'goal_minutes',
-    aliasedName,
-    false,
-    type: DriftSqlType.int,
-    requiredDuringInsert: true,
-  );
-  static const VerificationMeta _memoMeta = const VerificationMeta('memo');
-  @override
-  late final GeneratedColumn<String> memo = GeneratedColumn<String>(
-    'memo',
+  late final GeneratedColumn<String> date = GeneratedColumn<String>(
+    'date',
     aliasedName,
     false,
     type: DriftSqlType.string,
-    requiredDuringInsert: false,
-    defaultValue: const Constant(''),
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _isCompletedMeta = const VerificationMeta(
-    'isCompleted',
+  static const VerificationMeta _contentMeta = const VerificationMeta(
+    'content',
   );
   @override
-  late final GeneratedColumn<bool> isCompleted = GeneratedColumn<bool>(
-    'is_completed',
+  late final GeneratedColumn<String> content = GeneratedColumn<String>(
+    'content',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _isCheckedMeta = const VerificationMeta(
+    'isChecked',
+  );
+  @override
+  late final GeneratedColumn<bool> isChecked = GeneratedColumn<bool>(
+    'is_checked',
     aliasedName,
     false,
     type: DriftSqlType.bool,
     requiredDuringInsert: false,
     defaultConstraints: GeneratedColumn.constraintIsAlways(
-      'CHECK ("is_completed" IN (0, 1))',
+      'CHECK ("is_checked" IN (0, 1))',
     ),
     defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
   );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
@@ -656,20 +656,20 @@ class $StudyPlansTable extends StudyPlans
   List<GeneratedColumn> get $columns => [
     id,
     subjectId,
-    targetDate,
-    goalMinutes,
-    memo,
-    isCompleted,
+    date,
+    content,
+    isChecked,
+    sortOrder,
     createdAt,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'study_plans';
+  static const String $name = 'checklist_items';
   @override
   VerificationContext validateIntegrity(
-    Insertable<StudyPlan> instance, {
+    Insertable<ChecklistItem> instance, {
     bool isInserting = false,
   }) {
     final context = VerificationContext();
@@ -687,38 +687,32 @@ class $StudyPlansTable extends StudyPlans
     } else if (isInserting) {
       context.missing(_subjectIdMeta);
     }
-    if (data.containsKey('target_date')) {
+    if (data.containsKey('date')) {
       context.handle(
-        _targetDateMeta,
-        targetDate.isAcceptableOrUnknown(data['target_date']!, _targetDateMeta),
+        _dateMeta,
+        date.isAcceptableOrUnknown(data['date']!, _dateMeta),
       );
     } else if (isInserting) {
-      context.missing(_targetDateMeta);
+      context.missing(_dateMeta);
     }
-    if (data.containsKey('goal_minutes')) {
+    if (data.containsKey('content')) {
       context.handle(
-        _goalMinutesMeta,
-        goalMinutes.isAcceptableOrUnknown(
-          data['goal_minutes']!,
-          _goalMinutesMeta,
-        ),
+        _contentMeta,
+        content.isAcceptableOrUnknown(data['content']!, _contentMeta),
       );
     } else if (isInserting) {
-      context.missing(_goalMinutesMeta);
+      context.missing(_contentMeta);
     }
-    if (data.containsKey('memo')) {
+    if (data.containsKey('is_checked')) {
       context.handle(
-        _memoMeta,
-        memo.isAcceptableOrUnknown(data['memo']!, _memoMeta),
+        _isCheckedMeta,
+        isChecked.isAcceptableOrUnknown(data['is_checked']!, _isCheckedMeta),
       );
     }
-    if (data.containsKey('is_completed')) {
+    if (data.containsKey('sort_order')) {
       context.handle(
-        _isCompletedMeta,
-        isCompleted.isAcceptableOrUnknown(
-          data['is_completed']!,
-          _isCompletedMeta,
-        ),
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
       );
     }
     if (data.containsKey('created_at')) {
@@ -735,9 +729,9 @@ class $StudyPlansTable extends StudyPlans
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  StudyPlan map(Map<String, dynamic> data, {String? tablePrefix}) {
+  ChecklistItem map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return StudyPlan(
+    return ChecklistItem(
       id: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}id'],
@@ -746,21 +740,21 @@ class $StudyPlansTable extends StudyPlans
         DriftSqlType.string,
         data['${effectivePrefix}subject_id'],
       )!,
-      targetDate: attachedDatabase.typeMapping.read(
-        DriftSqlType.dateTime,
-        data['${effectivePrefix}target_date'],
-      )!,
-      goalMinutes: attachedDatabase.typeMapping.read(
-        DriftSqlType.int,
-        data['${effectivePrefix}goal_minutes'],
-      )!,
-      memo: attachedDatabase.typeMapping.read(
+      date: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
-        data['${effectivePrefix}memo'],
+        data['${effectivePrefix}date'],
       )!,
-      isCompleted: attachedDatabase.typeMapping.read(
+      content: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content'],
+      )!,
+      isChecked: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
-        data['${effectivePrefix}is_completed'],
+        data['${effectivePrefix}is_checked'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
       )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
@@ -770,26 +764,26 @@ class $StudyPlansTable extends StudyPlans
   }
 
   @override
-  $StudyPlansTable createAlias(String alias) {
-    return $StudyPlansTable(attachedDatabase, alias);
+  $ChecklistItemsTable createAlias(String alias) {
+    return $ChecklistItemsTable(attachedDatabase, alias);
   }
 }
 
-class StudyPlan extends DataClass implements Insertable<StudyPlan> {
+class ChecklistItem extends DataClass implements Insertable<ChecklistItem> {
   final String id;
   final String subjectId;
-  final DateTime targetDate;
-  final int goalMinutes;
-  final String memo;
-  final bool isCompleted;
+  final String date;
+  final String content;
+  final bool isChecked;
+  final int sortOrder;
   final DateTime createdAt;
-  const StudyPlan({
+  const ChecklistItem({
     required this.id,
     required this.subjectId,
-    required this.targetDate,
-    required this.goalMinutes,
-    required this.memo,
-    required this.isCompleted,
+    required this.date,
+    required this.content,
+    required this.isChecked,
+    required this.sortOrder,
     required this.createdAt,
   });
   @override
@@ -797,38 +791,38 @@ class StudyPlan extends DataClass implements Insertable<StudyPlan> {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['subject_id'] = Variable<String>(subjectId);
-    map['target_date'] = Variable<DateTime>(targetDate);
-    map['goal_minutes'] = Variable<int>(goalMinutes);
-    map['memo'] = Variable<String>(memo);
-    map['is_completed'] = Variable<bool>(isCompleted);
+    map['date'] = Variable<String>(date);
+    map['content'] = Variable<String>(content);
+    map['is_checked'] = Variable<bool>(isChecked);
+    map['sort_order'] = Variable<int>(sortOrder);
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
   }
 
-  StudyPlansCompanion toCompanion(bool nullToAbsent) {
-    return StudyPlansCompanion(
+  ChecklistItemsCompanion toCompanion(bool nullToAbsent) {
+    return ChecklistItemsCompanion(
       id: Value(id),
       subjectId: Value(subjectId),
-      targetDate: Value(targetDate),
-      goalMinutes: Value(goalMinutes),
-      memo: Value(memo),
-      isCompleted: Value(isCompleted),
+      date: Value(date),
+      content: Value(content),
+      isChecked: Value(isChecked),
+      sortOrder: Value(sortOrder),
       createdAt: Value(createdAt),
     );
   }
 
-  factory StudyPlan.fromJson(
+  factory ChecklistItem.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return StudyPlan(
+    return ChecklistItem(
       id: serializer.fromJson<String>(json['id']),
       subjectId: serializer.fromJson<String>(json['subjectId']),
-      targetDate: serializer.fromJson<DateTime>(json['targetDate']),
-      goalMinutes: serializer.fromJson<int>(json['goalMinutes']),
-      memo: serializer.fromJson<String>(json['memo']),
-      isCompleted: serializer.fromJson<bool>(json['isCompleted']),
+      date: serializer.fromJson<String>(json['date']),
+      content: serializer.fromJson<String>(json['content']),
+      isChecked: serializer.fromJson<bool>(json['isChecked']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -838,58 +832,52 @@ class StudyPlan extends DataClass implements Insertable<StudyPlan> {
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'subjectId': serializer.toJson<String>(subjectId),
-      'targetDate': serializer.toJson<DateTime>(targetDate),
-      'goalMinutes': serializer.toJson<int>(goalMinutes),
-      'memo': serializer.toJson<String>(memo),
-      'isCompleted': serializer.toJson<bool>(isCompleted),
+      'date': serializer.toJson<String>(date),
+      'content': serializer.toJson<String>(content),
+      'isChecked': serializer.toJson<bool>(isChecked),
+      'sortOrder': serializer.toJson<int>(sortOrder),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
 
-  StudyPlan copyWith({
+  ChecklistItem copyWith({
     String? id,
     String? subjectId,
-    DateTime? targetDate,
-    int? goalMinutes,
-    String? memo,
-    bool? isCompleted,
+    String? date,
+    String? content,
+    bool? isChecked,
+    int? sortOrder,
     DateTime? createdAt,
-  }) => StudyPlan(
+  }) => ChecklistItem(
     id: id ?? this.id,
     subjectId: subjectId ?? this.subjectId,
-    targetDate: targetDate ?? this.targetDate,
-    goalMinutes: goalMinutes ?? this.goalMinutes,
-    memo: memo ?? this.memo,
-    isCompleted: isCompleted ?? this.isCompleted,
+    date: date ?? this.date,
+    content: content ?? this.content,
+    isChecked: isChecked ?? this.isChecked,
+    sortOrder: sortOrder ?? this.sortOrder,
     createdAt: createdAt ?? this.createdAt,
   );
-  StudyPlan copyWithCompanion(StudyPlansCompanion data) {
-    return StudyPlan(
+  ChecklistItem copyWithCompanion(ChecklistItemsCompanion data) {
+    return ChecklistItem(
       id: data.id.present ? data.id.value : this.id,
       subjectId: data.subjectId.present ? data.subjectId.value : this.subjectId,
-      targetDate: data.targetDate.present
-          ? data.targetDate.value
-          : this.targetDate,
-      goalMinutes: data.goalMinutes.present
-          ? data.goalMinutes.value
-          : this.goalMinutes,
-      memo: data.memo.present ? data.memo.value : this.memo,
-      isCompleted: data.isCompleted.present
-          ? data.isCompleted.value
-          : this.isCompleted,
+      date: data.date.present ? data.date.value : this.date,
+      content: data.content.present ? data.content.value : this.content,
+      isChecked: data.isChecked.present ? data.isChecked.value : this.isChecked,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
 
   @override
   String toString() {
-    return (StringBuffer('StudyPlan(')
+    return (StringBuffer('ChecklistItem(')
           ..write('id: $id, ')
           ..write('subjectId: $subjectId, ')
-          ..write('targetDate: $targetDate, ')
-          ..write('goalMinutes: $goalMinutes, ')
-          ..write('memo: $memo, ')
-          ..write('isCompleted: $isCompleted, ')
+          ..write('date: $date, ')
+          ..write('content: $content, ')
+          ..write('isChecked: $isChecked, ')
+          ..write('sortOrder: $sortOrder, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -899,97 +887,97 @@ class StudyPlan extends DataClass implements Insertable<StudyPlan> {
   int get hashCode => Object.hash(
     id,
     subjectId,
-    targetDate,
-    goalMinutes,
-    memo,
-    isCompleted,
+    date,
+    content,
+    isChecked,
+    sortOrder,
     createdAt,
   );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is StudyPlan &&
+      (other is ChecklistItem &&
           other.id == this.id &&
           other.subjectId == this.subjectId &&
-          other.targetDate == this.targetDate &&
-          other.goalMinutes == this.goalMinutes &&
-          other.memo == this.memo &&
-          other.isCompleted == this.isCompleted &&
+          other.date == this.date &&
+          other.content == this.content &&
+          other.isChecked == this.isChecked &&
+          other.sortOrder == this.sortOrder &&
           other.createdAt == this.createdAt);
 }
 
-class StudyPlansCompanion extends UpdateCompanion<StudyPlan> {
+class ChecklistItemsCompanion extends UpdateCompanion<ChecklistItem> {
   final Value<String> id;
   final Value<String> subjectId;
-  final Value<DateTime> targetDate;
-  final Value<int> goalMinutes;
-  final Value<String> memo;
-  final Value<bool> isCompleted;
+  final Value<String> date;
+  final Value<String> content;
+  final Value<bool> isChecked;
+  final Value<int> sortOrder;
   final Value<DateTime> createdAt;
   final Value<int> rowid;
-  const StudyPlansCompanion({
+  const ChecklistItemsCompanion({
     this.id = const Value.absent(),
     this.subjectId = const Value.absent(),
-    this.targetDate = const Value.absent(),
-    this.goalMinutes = const Value.absent(),
-    this.memo = const Value.absent(),
-    this.isCompleted = const Value.absent(),
+    this.date = const Value.absent(),
+    this.content = const Value.absent(),
+    this.isChecked = const Value.absent(),
+    this.sortOrder = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
-  StudyPlansCompanion.insert({
+  ChecklistItemsCompanion.insert({
     required String id,
     required String subjectId,
-    required DateTime targetDate,
-    required int goalMinutes,
-    this.memo = const Value.absent(),
-    this.isCompleted = const Value.absent(),
+    required String date,
+    required String content,
+    this.isChecked = const Value.absent(),
+    this.sortOrder = const Value.absent(),
     required DateTime createdAt,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        subjectId = Value(subjectId),
-       targetDate = Value(targetDate),
-       goalMinutes = Value(goalMinutes),
+       date = Value(date),
+       content = Value(content),
        createdAt = Value(createdAt);
-  static Insertable<StudyPlan> custom({
+  static Insertable<ChecklistItem> custom({
     Expression<String>? id,
     Expression<String>? subjectId,
-    Expression<DateTime>? targetDate,
-    Expression<int>? goalMinutes,
-    Expression<String>? memo,
-    Expression<bool>? isCompleted,
+    Expression<String>? date,
+    Expression<String>? content,
+    Expression<bool>? isChecked,
+    Expression<int>? sortOrder,
     Expression<DateTime>? createdAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (subjectId != null) 'subject_id': subjectId,
-      if (targetDate != null) 'target_date': targetDate,
-      if (goalMinutes != null) 'goal_minutes': goalMinutes,
-      if (memo != null) 'memo': memo,
-      if (isCompleted != null) 'is_completed': isCompleted,
+      if (date != null) 'date': date,
+      if (content != null) 'content': content,
+      if (isChecked != null) 'is_checked': isChecked,
+      if (sortOrder != null) 'sort_order': sortOrder,
       if (createdAt != null) 'created_at': createdAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
 
-  StudyPlansCompanion copyWith({
+  ChecklistItemsCompanion copyWith({
     Value<String>? id,
     Value<String>? subjectId,
-    Value<DateTime>? targetDate,
-    Value<int>? goalMinutes,
-    Value<String>? memo,
-    Value<bool>? isCompleted,
+    Value<String>? date,
+    Value<String>? content,
+    Value<bool>? isChecked,
+    Value<int>? sortOrder,
     Value<DateTime>? createdAt,
     Value<int>? rowid,
   }) {
-    return StudyPlansCompanion(
+    return ChecklistItemsCompanion(
       id: id ?? this.id,
       subjectId: subjectId ?? this.subjectId,
-      targetDate: targetDate ?? this.targetDate,
-      goalMinutes: goalMinutes ?? this.goalMinutes,
-      memo: memo ?? this.memo,
-      isCompleted: isCompleted ?? this.isCompleted,
+      date: date ?? this.date,
+      content: content ?? this.content,
+      isChecked: isChecked ?? this.isChecked,
+      sortOrder: sortOrder ?? this.sortOrder,
       createdAt: createdAt ?? this.createdAt,
       rowid: rowid ?? this.rowid,
     );
@@ -1004,17 +992,17 @@ class StudyPlansCompanion extends UpdateCompanion<StudyPlan> {
     if (subjectId.present) {
       map['subject_id'] = Variable<String>(subjectId.value);
     }
-    if (targetDate.present) {
-      map['target_date'] = Variable<DateTime>(targetDate.value);
+    if (date.present) {
+      map['date'] = Variable<String>(date.value);
     }
-    if (goalMinutes.present) {
-      map['goal_minutes'] = Variable<int>(goalMinutes.value);
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
     }
-    if (memo.present) {
-      map['memo'] = Variable<String>(memo.value);
+    if (isChecked.present) {
+      map['is_checked'] = Variable<bool>(isChecked.value);
     }
-    if (isCompleted.present) {
-      map['is_completed'] = Variable<bool>(isCompleted.value);
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
     }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
@@ -1027,13 +1015,13 @@ class StudyPlansCompanion extends UpdateCompanion<StudyPlan> {
 
   @override
   String toString() {
-    return (StringBuffer('StudyPlansCompanion(')
+    return (StringBuffer('ChecklistItemsCompanion(')
           ..write('id: $id, ')
           ..write('subjectId: $subjectId, ')
-          ..write('targetDate: $targetDate, ')
-          ..write('goalMinutes: $goalMinutes, ')
-          ..write('memo: $memo, ')
-          ..write('isCompleted: $isCompleted, ')
+          ..write('date: $date, ')
+          ..write('content: $content, ')
+          ..write('isChecked: $isChecked, ')
+          ..write('sortOrder: $sortOrder, ')
           ..write('createdAt: $createdAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -1134,6 +1122,18 @@ class $StudySessionsTable extends StudySessions
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _penaltyCountMeta = const VerificationMeta(
+    'penaltyCount',
+  );
+  @override
+  late final GeneratedColumn<int> penaltyCount = GeneratedColumn<int>(
+    'penalty_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1144,6 +1144,7 @@ class $StudySessionsTable extends StudySessions
     durationSeconds,
     trayOpenCount,
     selfScore,
+    penaltyCount,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1214,6 +1215,15 @@ class $StudySessionsTable extends StudySessions
         selfScore.isAcceptableOrUnknown(data['self_score']!, _selfScoreMeta),
       );
     }
+    if (data.containsKey('penalty_count')) {
+      context.handle(
+        _penaltyCountMeta,
+        penaltyCount.isAcceptableOrUnknown(
+          data['penalty_count']!,
+          _penaltyCountMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1255,6 +1265,10 @@ class $StudySessionsTable extends StudySessions
         DriftSqlType.int,
         data['${effectivePrefix}self_score'],
       )!,
+      penaltyCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}penalty_count'],
+      )!,
     );
   }
 
@@ -1273,6 +1287,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
   final int durationSeconds;
   final int trayOpenCount;
   final int selfScore;
+  final int penaltyCount;
   const StudySession({
     required this.id,
     required this.subjectId,
@@ -1282,6 +1297,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
     required this.durationSeconds,
     required this.trayOpenCount,
     required this.selfScore,
+    required this.penaltyCount,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1298,6 +1314,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
     map['duration_seconds'] = Variable<int>(durationSeconds);
     map['tray_open_count'] = Variable<int>(trayOpenCount);
     map['self_score'] = Variable<int>(selfScore);
+    map['penalty_count'] = Variable<int>(penaltyCount);
     return map;
   }
 
@@ -1315,6 +1332,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
       durationSeconds: Value(durationSeconds),
       trayOpenCount: Value(trayOpenCount),
       selfScore: Value(selfScore),
+      penaltyCount: Value(penaltyCount),
     );
   }
 
@@ -1332,6 +1350,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
       durationSeconds: serializer.fromJson<int>(json['durationSeconds']),
       trayOpenCount: serializer.fromJson<int>(json['trayOpenCount']),
       selfScore: serializer.fromJson<int>(json['selfScore']),
+      penaltyCount: serializer.fromJson<int>(json['penaltyCount']),
     );
   }
   @override
@@ -1346,6 +1365,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
       'durationSeconds': serializer.toJson<int>(durationSeconds),
       'trayOpenCount': serializer.toJson<int>(trayOpenCount),
       'selfScore': serializer.toJson<int>(selfScore),
+      'penaltyCount': serializer.toJson<int>(penaltyCount),
     };
   }
 
@@ -1358,6 +1378,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
     int? durationSeconds,
     int? trayOpenCount,
     int? selfScore,
+    int? penaltyCount,
   }) => StudySession(
     id: id ?? this.id,
     subjectId: subjectId ?? this.subjectId,
@@ -1367,6 +1388,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
     durationSeconds: durationSeconds ?? this.durationSeconds,
     trayOpenCount: trayOpenCount ?? this.trayOpenCount,
     selfScore: selfScore ?? this.selfScore,
+    penaltyCount: penaltyCount ?? this.penaltyCount,
   );
   StudySession copyWithCompanion(StudySessionsCompanion data) {
     return StudySession(
@@ -1382,6 +1404,9 @@ class StudySession extends DataClass implements Insertable<StudySession> {
           ? data.trayOpenCount.value
           : this.trayOpenCount,
       selfScore: data.selfScore.present ? data.selfScore.value : this.selfScore,
+      penaltyCount: data.penaltyCount.present
+          ? data.penaltyCount.value
+          : this.penaltyCount,
     );
   }
 
@@ -1395,7 +1420,8 @@ class StudySession extends DataClass implements Insertable<StudySession> {
           ..write('endTime: $endTime, ')
           ..write('durationSeconds: $durationSeconds, ')
           ..write('trayOpenCount: $trayOpenCount, ')
-          ..write('selfScore: $selfScore')
+          ..write('selfScore: $selfScore, ')
+          ..write('penaltyCount: $penaltyCount')
           ..write(')'))
         .toString();
   }
@@ -1410,6 +1436,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
     durationSeconds,
     trayOpenCount,
     selfScore,
+    penaltyCount,
   );
   @override
   bool operator ==(Object other) =>
@@ -1422,7 +1449,8 @@ class StudySession extends DataClass implements Insertable<StudySession> {
           other.endTime == this.endTime &&
           other.durationSeconds == this.durationSeconds &&
           other.trayOpenCount == this.trayOpenCount &&
-          other.selfScore == this.selfScore);
+          other.selfScore == this.selfScore &&
+          other.penaltyCount == this.penaltyCount);
 }
 
 class StudySessionsCompanion extends UpdateCompanion<StudySession> {
@@ -1434,6 +1462,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
   final Value<int> durationSeconds;
   final Value<int> trayOpenCount;
   final Value<int> selfScore;
+  final Value<int> penaltyCount;
   final Value<int> rowid;
   const StudySessionsCompanion({
     this.id = const Value.absent(),
@@ -1444,6 +1473,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
     this.durationSeconds = const Value.absent(),
     this.trayOpenCount = const Value.absent(),
     this.selfScore = const Value.absent(),
+    this.penaltyCount = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   StudySessionsCompanion.insert({
@@ -1455,6 +1485,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
     this.durationSeconds = const Value.absent(),
     this.trayOpenCount = const Value.absent(),
     this.selfScore = const Value.absent(),
+    this.penaltyCount = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        subjectId = Value(subjectId),
@@ -1468,6 +1499,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
     Expression<int>? durationSeconds,
     Expression<int>? trayOpenCount,
     Expression<int>? selfScore,
+    Expression<int>? penaltyCount,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1479,6 +1511,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
       if (durationSeconds != null) 'duration_seconds': durationSeconds,
       if (trayOpenCount != null) 'tray_open_count': trayOpenCount,
       if (selfScore != null) 'self_score': selfScore,
+      if (penaltyCount != null) 'penalty_count': penaltyCount,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1492,6 +1525,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
     Value<int>? durationSeconds,
     Value<int>? trayOpenCount,
     Value<int>? selfScore,
+    Value<int>? penaltyCount,
     Value<int>? rowid,
   }) {
     return StudySessionsCompanion(
@@ -1503,6 +1537,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
       durationSeconds: durationSeconds ?? this.durationSeconds,
       trayOpenCount: trayOpenCount ?? this.trayOpenCount,
       selfScore: selfScore ?? this.selfScore,
+      penaltyCount: penaltyCount ?? this.penaltyCount,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1534,6 +1569,9 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
     if (selfScore.present) {
       map['self_score'] = Variable<int>(selfScore.value);
     }
+    if (penaltyCount.present) {
+      map['penalty_count'] = Variable<int>(penaltyCount.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1551,6 +1589,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
           ..write('durationSeconds: $durationSeconds, ')
           ..write('trayOpenCount: $trayOpenCount, ')
           ..write('selfScore: $selfScore, ')
+          ..write('penaltyCount: $penaltyCount, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1952,7 +1991,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $SubjectCategoriesTable subjectCategories =
       $SubjectCategoriesTable(this);
   late final $SubjectsTable subjects = $SubjectsTable(this);
-  late final $StudyPlansTable studyPlans = $StudyPlansTable(this);
+  late final $ChecklistItemsTable checklistItems = $ChecklistItemsTable(this);
   late final $StudySessionsTable studySessions = $StudySessionsTable(this);
   late final $PomodoroSettingsTable pomodoroSettings = $PomodoroSettingsTable(
     this,
@@ -1964,7 +2003,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     subjectCategories,
     subjects,
-    studyPlans,
+    checklistItems,
     studySessions,
     pomodoroSettings,
   ];
@@ -2318,32 +2357,32 @@ typedef $$SubjectsTableProcessedTableManager =
       Subject,
       PrefetchHooks Function()
     >;
-typedef $$StudyPlansTableCreateCompanionBuilder =
-    StudyPlansCompanion Function({
+typedef $$ChecklistItemsTableCreateCompanionBuilder =
+    ChecklistItemsCompanion Function({
       required String id,
       required String subjectId,
-      required DateTime targetDate,
-      required int goalMinutes,
-      Value<String> memo,
-      Value<bool> isCompleted,
+      required String date,
+      required String content,
+      Value<bool> isChecked,
+      Value<int> sortOrder,
       required DateTime createdAt,
       Value<int> rowid,
     });
-typedef $$StudyPlansTableUpdateCompanionBuilder =
-    StudyPlansCompanion Function({
+typedef $$ChecklistItemsTableUpdateCompanionBuilder =
+    ChecklistItemsCompanion Function({
       Value<String> id,
       Value<String> subjectId,
-      Value<DateTime> targetDate,
-      Value<int> goalMinutes,
-      Value<String> memo,
-      Value<bool> isCompleted,
+      Value<String> date,
+      Value<String> content,
+      Value<bool> isChecked,
+      Value<int> sortOrder,
       Value<DateTime> createdAt,
       Value<int> rowid,
     });
 
-class $$StudyPlansTableFilterComposer
-    extends Composer<_$AppDatabase, $StudyPlansTable> {
-  $$StudyPlansTableFilterComposer({
+class $$ChecklistItemsTableFilterComposer
+    extends Composer<_$AppDatabase, $ChecklistItemsTable> {
+  $$ChecklistItemsTableFilterComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -2360,23 +2399,23 @@ class $$StudyPlansTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<DateTime> get targetDate => $composableBuilder(
-    column: $table.targetDate,
+  ColumnFilters<String> get date => $composableBuilder(
+    column: $table.date,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get goalMinutes => $composableBuilder(
-    column: $table.goalMinutes,
+  ColumnFilters<String> get content => $composableBuilder(
+    column: $table.content,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<String> get memo => $composableBuilder(
-    column: $table.memo,
+  ColumnFilters<bool> get isChecked => $composableBuilder(
+    column: $table.isChecked,
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<bool> get isCompleted => $composableBuilder(
-    column: $table.isCompleted,
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2386,9 +2425,9 @@ class $$StudyPlansTableFilterComposer
   );
 }
 
-class $$StudyPlansTableOrderingComposer
-    extends Composer<_$AppDatabase, $StudyPlansTable> {
-  $$StudyPlansTableOrderingComposer({
+class $$ChecklistItemsTableOrderingComposer
+    extends Composer<_$AppDatabase, $ChecklistItemsTable> {
+  $$ChecklistItemsTableOrderingComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -2405,23 +2444,23 @@ class $$StudyPlansTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<DateTime> get targetDate => $composableBuilder(
-    column: $table.targetDate,
+  ColumnOrderings<String> get date => $composableBuilder(
+    column: $table.date,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get goalMinutes => $composableBuilder(
-    column: $table.goalMinutes,
+  ColumnOrderings<String> get content => $composableBuilder(
+    column: $table.content,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<String> get memo => $composableBuilder(
-    column: $table.memo,
+  ColumnOrderings<bool> get isChecked => $composableBuilder(
+    column: $table.isChecked,
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<bool> get isCompleted => $composableBuilder(
-    column: $table.isCompleted,
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -2431,9 +2470,9 @@ class $$StudyPlansTableOrderingComposer
   );
 }
 
-class $$StudyPlansTableAnnotationComposer
-    extends Composer<_$AppDatabase, $StudyPlansTable> {
-  $$StudyPlansTableAnnotationComposer({
+class $$ChecklistItemsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ChecklistItemsTable> {
+  $$ChecklistItemsTableAnnotationComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -2446,74 +2485,70 @@ class $$StudyPlansTableAnnotationComposer
   GeneratedColumn<String> get subjectId =>
       $composableBuilder(column: $table.subjectId, builder: (column) => column);
 
-  GeneratedColumn<DateTime> get targetDate => $composableBuilder(
-    column: $table.targetDate,
-    builder: (column) => column,
-  );
+  GeneratedColumn<String> get date =>
+      $composableBuilder(column: $table.date, builder: (column) => column);
 
-  GeneratedColumn<int> get goalMinutes => $composableBuilder(
-    column: $table.goalMinutes,
-    builder: (column) => column,
-  );
+  GeneratedColumn<String> get content =>
+      $composableBuilder(column: $table.content, builder: (column) => column);
 
-  GeneratedColumn<String> get memo =>
-      $composableBuilder(column: $table.memo, builder: (column) => column);
+  GeneratedColumn<bool> get isChecked =>
+      $composableBuilder(column: $table.isChecked, builder: (column) => column);
 
-  GeneratedColumn<bool> get isCompleted => $composableBuilder(
-    column: $table.isCompleted,
-    builder: (column) => column,
-  );
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 }
 
-class $$StudyPlansTableTableManager
+class $$ChecklistItemsTableTableManager
     extends
         RootTableManager<
           _$AppDatabase,
-          $StudyPlansTable,
-          StudyPlan,
-          $$StudyPlansTableFilterComposer,
-          $$StudyPlansTableOrderingComposer,
-          $$StudyPlansTableAnnotationComposer,
-          $$StudyPlansTableCreateCompanionBuilder,
-          $$StudyPlansTableUpdateCompanionBuilder,
+          $ChecklistItemsTable,
+          ChecklistItem,
+          $$ChecklistItemsTableFilterComposer,
+          $$ChecklistItemsTableOrderingComposer,
+          $$ChecklistItemsTableAnnotationComposer,
+          $$ChecklistItemsTableCreateCompanionBuilder,
+          $$ChecklistItemsTableUpdateCompanionBuilder,
           (
-            StudyPlan,
-            BaseReferences<_$AppDatabase, $StudyPlansTable, StudyPlan>,
+            ChecklistItem,
+            BaseReferences<_$AppDatabase, $ChecklistItemsTable, ChecklistItem>,
           ),
-          StudyPlan,
+          ChecklistItem,
           PrefetchHooks Function()
         > {
-  $$StudyPlansTableTableManager(_$AppDatabase db, $StudyPlansTable table)
-    : super(
+  $$ChecklistItemsTableTableManager(
+    _$AppDatabase db,
+    $ChecklistItemsTable table,
+  ) : super(
         TableManagerState(
           db: db,
           table: table,
           createFilteringComposer: () =>
-              $$StudyPlansTableFilterComposer($db: db, $table: table),
+              $$ChecklistItemsTableFilterComposer($db: db, $table: table),
           createOrderingComposer: () =>
-              $$StudyPlansTableOrderingComposer($db: db, $table: table),
+              $$ChecklistItemsTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
-              $$StudyPlansTableAnnotationComposer($db: db, $table: table),
+              $$ChecklistItemsTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback:
               ({
                 Value<String> id = const Value.absent(),
                 Value<String> subjectId = const Value.absent(),
-                Value<DateTime> targetDate = const Value.absent(),
-                Value<int> goalMinutes = const Value.absent(),
-                Value<String> memo = const Value.absent(),
-                Value<bool> isCompleted = const Value.absent(),
+                Value<String> date = const Value.absent(),
+                Value<String> content = const Value.absent(),
+                Value<bool> isChecked = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => StudyPlansCompanion(
+              }) => ChecklistItemsCompanion(
                 id: id,
                 subjectId: subjectId,
-                targetDate: targetDate,
-                goalMinutes: goalMinutes,
-                memo: memo,
-                isCompleted: isCompleted,
+                date: date,
+                content: content,
+                isChecked: isChecked,
+                sortOrder: sortOrder,
                 createdAt: createdAt,
                 rowid: rowid,
               ),
@@ -2521,19 +2556,19 @@ class $$StudyPlansTableTableManager
               ({
                 required String id,
                 required String subjectId,
-                required DateTime targetDate,
-                required int goalMinutes,
-                Value<String> memo = const Value.absent(),
-                Value<bool> isCompleted = const Value.absent(),
+                required String date,
+                required String content,
+                Value<bool> isChecked = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
                 required DateTime createdAt,
                 Value<int> rowid = const Value.absent(),
-              }) => StudyPlansCompanion.insert(
+              }) => ChecklistItemsCompanion.insert(
                 id: id,
                 subjectId: subjectId,
-                targetDate: targetDate,
-                goalMinutes: goalMinutes,
-                memo: memo,
-                isCompleted: isCompleted,
+                date: date,
+                content: content,
+                isChecked: isChecked,
+                sortOrder: sortOrder,
                 createdAt: createdAt,
                 rowid: rowid,
               ),
@@ -2545,18 +2580,21 @@ class $$StudyPlansTableTableManager
       );
 }
 
-typedef $$StudyPlansTableProcessedTableManager =
+typedef $$ChecklistItemsTableProcessedTableManager =
     ProcessedTableManager<
       _$AppDatabase,
-      $StudyPlansTable,
-      StudyPlan,
-      $$StudyPlansTableFilterComposer,
-      $$StudyPlansTableOrderingComposer,
-      $$StudyPlansTableAnnotationComposer,
-      $$StudyPlansTableCreateCompanionBuilder,
-      $$StudyPlansTableUpdateCompanionBuilder,
-      (StudyPlan, BaseReferences<_$AppDatabase, $StudyPlansTable, StudyPlan>),
-      StudyPlan,
+      $ChecklistItemsTable,
+      ChecklistItem,
+      $$ChecklistItemsTableFilterComposer,
+      $$ChecklistItemsTableOrderingComposer,
+      $$ChecklistItemsTableAnnotationComposer,
+      $$ChecklistItemsTableCreateCompanionBuilder,
+      $$ChecklistItemsTableUpdateCompanionBuilder,
+      (
+        ChecklistItem,
+        BaseReferences<_$AppDatabase, $ChecklistItemsTable, ChecklistItem>,
+      ),
+      ChecklistItem,
       PrefetchHooks Function()
     >;
 typedef $$StudySessionsTableCreateCompanionBuilder =
@@ -2569,6 +2607,7 @@ typedef $$StudySessionsTableCreateCompanionBuilder =
       Value<int> durationSeconds,
       Value<int> trayOpenCount,
       Value<int> selfScore,
+      Value<int> penaltyCount,
       Value<int> rowid,
     });
 typedef $$StudySessionsTableUpdateCompanionBuilder =
@@ -2581,6 +2620,7 @@ typedef $$StudySessionsTableUpdateCompanionBuilder =
       Value<int> durationSeconds,
       Value<int> trayOpenCount,
       Value<int> selfScore,
+      Value<int> penaltyCount,
       Value<int> rowid,
     });
 
@@ -2630,6 +2670,11 @@ class $$StudySessionsTableFilterComposer
 
   ColumnFilters<int> get selfScore => $composableBuilder(
     column: $table.selfScore,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get penaltyCount => $composableBuilder(
+    column: $table.penaltyCount,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -2682,6 +2727,11 @@ class $$StudySessionsTableOrderingComposer
     column: $table.selfScore,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get penaltyCount => $composableBuilder(
+    column: $table.penaltyCount,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$StudySessionsTableAnnotationComposer
@@ -2720,6 +2770,11 @@ class $$StudySessionsTableAnnotationComposer
 
   GeneratedColumn<int> get selfScore =>
       $composableBuilder(column: $table.selfScore, builder: (column) => column);
+
+  GeneratedColumn<int> get penaltyCount => $composableBuilder(
+    column: $table.penaltyCount,
+    builder: (column) => column,
+  );
 }
 
 class $$StudySessionsTableTableManager
@@ -2761,6 +2816,7 @@ class $$StudySessionsTableTableManager
                 Value<int> durationSeconds = const Value.absent(),
                 Value<int> trayOpenCount = const Value.absent(),
                 Value<int> selfScore = const Value.absent(),
+                Value<int> penaltyCount = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => StudySessionsCompanion(
                 id: id,
@@ -2771,6 +2827,7 @@ class $$StudySessionsTableTableManager
                 durationSeconds: durationSeconds,
                 trayOpenCount: trayOpenCount,
                 selfScore: selfScore,
+                penaltyCount: penaltyCount,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2783,6 +2840,7 @@ class $$StudySessionsTableTableManager
                 Value<int> durationSeconds = const Value.absent(),
                 Value<int> trayOpenCount = const Value.absent(),
                 Value<int> selfScore = const Value.absent(),
+                Value<int> penaltyCount = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => StudySessionsCompanion.insert(
                 id: id,
@@ -2793,6 +2851,7 @@ class $$StudySessionsTableTableManager
                 durationSeconds: durationSeconds,
                 trayOpenCount: trayOpenCount,
                 selfScore: selfScore,
+                penaltyCount: penaltyCount,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -3042,8 +3101,8 @@ class $AppDatabaseManager {
       $$SubjectCategoriesTableTableManager(_db, _db.subjectCategories);
   $$SubjectsTableTableManager get subjects =>
       $$SubjectsTableTableManager(_db, _db.subjects);
-  $$StudyPlansTableTableManager get studyPlans =>
-      $$StudyPlansTableTableManager(_db, _db.studyPlans);
+  $$ChecklistItemsTableTableManager get checklistItems =>
+      $$ChecklistItemsTableTableManager(_db, _db.checklistItems);
   $$StudySessionsTableTableManager get studySessions =>
       $$StudySessionsTableTableManager(_db, _db.studySessions);
   $$PomodoroSettingsTableTableManager get pomodoroSettings =>

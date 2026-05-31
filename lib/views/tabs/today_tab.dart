@@ -5,11 +5,12 @@ import '../../viewmodels/ui_state.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../database/database.dart';
 import '../../main.dart' show database;
+import '../study_mode_screen.dart';
 
-// ── 월별 계획 날짜 Provider ───────────────────────────────
-final planDatesInMonthProvider =
+// ── 월별 체크리스트 날짜 Provider ──────────────────────────
+final checklistDatesInMonthProvider =
 FutureProvider.family<Set<DateTime>, DateTime>((ref, monthKey) async {
-  return database.getPlanDatesInMonth(monthKey.year, monthKey.month);
+  return database.getChecklistDatesInMonth(monthKey.year, monthKey.month);
 });
 
 class TodayTab extends ConsumerStatefulWidget {
@@ -25,7 +26,14 @@ class _TodayTabState extends ConsumerState<TodayTab> {
   @override
   void initState() {
     super.initState();
-    _weekStart = _getMonday(DateTime.now());
+    final now = DateTime.now();
+    final effectiveDate = now.hour < 6
+        ? DateTime(now.year, now.month, now.day - 1)
+        : DateTime(now.year, now.month, now.day);
+    _weekStart = _getMonday(effectiveDate);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(selectedDateProvider.notifier).setDate(effectiveDate);
+    });
   }
 
   DateTime _getMonday(DateTime date) {
@@ -48,14 +56,13 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     if (monday != _weekStart) setState(() => _weekStart = monday);
   }
 
-  // ── 월 달력 팝업 ─────────────────────────────────────
   Future<void> _showMonthCalendar(
-      BuildContext context, DateTime currentMonth, Set<DateTime> planDates) async {
+      BuildContext context, DateTime currentMonth, Set<DateTime> checklistDates) async {
     final picked = await showDialog<DateTime>(
       context: context,
       builder: (context) => _MonthCalendarDialog(
         initialMonth: currentMonth,
-        planDates: planDates,
+        checklistDates: checklistDates,
         selectedDate: ref.read(selectedDateProvider),
       ),
     );
@@ -67,29 +74,26 @@ class _TodayTabState extends ConsumerState<TodayTab> {
   @override
   Widget build(BuildContext context) {
     final selectedDate = ref.watch(selectedDateProvider);
-    final plansAsync = ref.watch(todayPlanViewModelProvider(selectedDate));
+    final checklistAsync = ref.watch(todayChecklistViewModelProvider(selectedDate));
     final sessionsAsync = ref.watch(studySessionViewModelProvider(selectedDate));
     final today = toStudyDate(DateTime.now());
     final days = _weekDays;
 
-    // 주간 바에서 보이는 달 기준으로 계획 날짜 조회 (첫 번째 날 기준)
     final monthKey = DateTime(_weekStart.year, _weekStart.month);
-    final planDatesAsync = ref.watch(planDatesInMonthProvider(monthKey));
-    // 주가 두 달에 걸치면 마지막 날의 달도 조회
+    final checklistDatesAsync = ref.watch(checklistDatesInMonthProvider(monthKey));
     final lastDay = days.last;
     final lastMonthKey = DateTime(lastDay.year, lastDay.month);
-    final planDatesLastAsync = lastMonthKey != monthKey
-        ? ref.watch(planDatesInMonthProvider(lastMonthKey))
+    final checklistDatesLastAsync = lastMonthKey != monthKey
+        ? ref.watch(checklistDatesInMonthProvider(lastMonthKey))
         : null;
 
-    final Set<DateTime> planDates = {
-      ...planDatesAsync.valueOrNull ?? {},
-      ...planDatesLastAsync?.valueOrNull ?? {},
+    final Set<DateTime> checklistDates = {
+      ...checklistDatesAsync.valueOrNull ?? {},
+      ...checklistDatesLastAsync?.valueOrNull ?? {},
     };
 
-    // selectedDate 기준 월의 계획 날짜 (달력 팝업용)
     final selMonthKey = DateTime(selectedDate.year, selectedDate.month);
-    final selPlanDatesAsync = ref.watch(planDatesInMonthProvider(selMonthKey));
+    final selChecklistDatesAsync = ref.watch(checklistDatesInMonthProvider(selMonthKey));
 
     final firstMonth = DateFormat('yyyy년 M월', 'ko').format(days.first);
     final lastMonth = DateFormat('yyyy년 M월', 'ko').format(days.last);
@@ -126,7 +130,7 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                           onTap: () => _showMonthCalendar(
                             context,
                             DateTime(selectedDate.year, selectedDate.month),
-                            selPlanDatesAsync.valueOrNull ?? {},
+                            selChecklistDatesAsync.valueOrNull ?? {},
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -167,7 +171,7 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                       final isToday = date == today;
                       final isSat = date.weekday == DateTime.saturday;
                       final isSun = date.weekday == DateTime.sunday;
-                      final hasPlan = planDates.contains(date);
+                      final hasChecklist = checklistDates.contains(date);
 
                       Color dayNumColor;
                       if (isSelected) {
@@ -252,8 +256,8 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                                   ],
                                 ),
                               ),
-                              // ── 계획 있는 날 빨간 점 ────────────────
-                              if (hasPlan)
+                              // ── 체크리스트 있는 날 빨간 점 ──────────
+                              if (hasChecklist)
                                 Positioned(
                                   top: 0,
                                   right: 2,
@@ -291,21 +295,21 @@ class _TodayTabState extends ConsumerState<TodayTab> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                // ── 계획 헤더 (추가 + 전체 삭제) ──────────
-                plansAsync.when(
-                  data: (plans) => Row(
+                // ── 체크리스트 헤더 (추가 + 전체 삭제) ───
+                checklistAsync.when(
+                  data: (items) => Row(
                     children: [
                       Expanded(
                         child: _SectionHeader(
-                          title: '오늘의 계획',
+                          title: '오늘의 체크리스트',
                           onAdd: () =>
-                              _showAddPlanDialog(context, ref, selectedDate),
+                              _showAddChecklistDialog(context, ref, selectedDate),
                         ),
                       ),
-                      if (plans.isNotEmpty)
+                      if (items.isNotEmpty)
                         TextButton.icon(
                           onPressed: () =>
-                              _confirmDeleteAllPlans(context, ref, selectedDate),
+                              _confirmDeleteAllChecklists(context, ref, selectedDate),
                           icon: const Icon(Icons.delete_sweep,
                               size: 16, color: Colors.redAccent),
                           label: const Text('전체 삭제',
@@ -319,40 +323,139 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                     ],
                   ),
                   loading: () => _SectionHeader(
-                    title: '오늘의 계획',
+                    title: '오늘의 체크리스트',
                     onAdd: () =>
-                        _showAddPlanDialog(context, ref, selectedDate),
+                        _showAddChecklistDialog(context, ref, selectedDate),
                   ),
                   error: (_, __) => _SectionHeader(
-                    title: '오늘의 계획',
+                    title: '오늘의 체크리스트',
                     onAdd: () =>
-                        _showAddPlanDialog(context, ref, selectedDate),
+                        _showAddChecklistDialog(context, ref, selectedDate),
                   ),
                 ),
                 const SizedBox(height: 8),
-                plansAsync.when(
-                  data: (plans) {
-                    if (plans.isEmpty) {
+                checklistAsync.when(
+                  data: (items) {
+                    if (items.isEmpty) {
                       return const _EmptyHint(
-                          message: 'AI 탭에서 계획을 만들거나\n직접 추가해보세요');
+                          message: 'AI 탭에서 체크리스트를 만들거나\n직접 추가해보세요');
+                    }
+                    // 과목별 그룹핑
+                    final grouped = <String, List<Map<String, dynamic>>>{};
+                    final subjectMap = <String, Subject>{};
+                    for (final item in items) {
+                      final subject = item['subject'] as Subject;
+                      grouped.putIfAbsent(subject.id, () => []).add(item);
+                      subjectMap[subject.id] = subject;
                     }
                     return Column(
-                      children: plans.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final item = entry.value;
-                        final plan = item['plan'] as StudyPlan;
-                        final subject = item['subject'] as Subject;
-                        return _PlanCard(
-                            plan: plan,
-                            subject: subject,
-                            date: selectedDate,
-                            index: index);
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: grouped.entries.map((entry) {
+                        final subject = subjectMap[entry.key]!;
+                        final color = _colorFromHex(subject.colorHex);
+                        final groupItems = entry.value;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // 과목 헤더
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: color,
+                                    radius: 8,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    subject.name,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: color,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${groupItems.length}개',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              // 체크리스트 항목들
+                              ...groupItems.map((item) {
+                                final checklistItem =
+                                    item['item'] as ChecklistItem;
+                                return _ChecklistItemTile(
+                                  item: checklistItem,
+                                  subject: subject,
+                                  date: selectedDate,
+                                );
+                              }),
+                            ],
+                          ),
+                        );
                       }).toList(),
                     );
                   },
                   loading: () =>
                   const Center(child: CircularProgressIndicator()),
                   error: (e, s) => Text('오류: $e'),
+                ),
+                // ── 공부 시작 버튼 ──────────────────────
+                checklistAsync.when(
+                  data: (items) {
+                    if (items.isEmpty) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          final allItems = items
+                              .map((e) => e['item'] as ChecklistItem)
+                              .toList();
+                          final unchecked =
+                              allItems.where((i) => !i.isChecked).toList();
+                          if (unchecked.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('모든 항목이 완료되었어요!')),
+                            );
+                            return;
+                          }
+                          final first = unchecked.first;
+                          final subjectItem = items.firstWhere(
+                              (e) => (e['item'] as ChecklistItem).id == first.id);
+                          final subject =
+                              subjectItem['subject'] as Subject;
+
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => StudyModeScreen(
+                                sessionId:
+                                    '${DateTime.now().millisecondsSinceEpoch}_${first.id}',
+                                subjectId: subject.id,
+                                subjectName: subject.name,
+                                subjectColorHex: subject.colorHex,
+                                checklistItems: allItems,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.school),
+                        label: const Text('공부 시작'),
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 48),
+                        ),
+                      ),
+                    );
+                  },
+                  loading: () => const SizedBox.shrink(),
+                  error: (_, __) => const SizedBox.shrink(),
                 ),
                 const SizedBox(height: 24),
                 const _SectionHeader(title: '오늘의 공부 기록'),
@@ -386,16 +489,16 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     );
   }
 
-  // ── 계획 전체 삭제 확인 ──────────────────────────────
-  Future<void> _confirmDeleteAllPlans(
+  // ── 체크리스트 전체 삭제 확인 ──────────────────────────
+  Future<void> _confirmDeleteAllChecklists(
       BuildContext context, WidgetRef ref, DateTime selectedDate) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('계획 전체 삭제'),
+        title: const Text('체크리스트 전체 삭제'),
         content: Text(
           '${DateFormat('M월 d일', 'ko').format(selectedDate)}의\n'
-              '모든 계획을 삭제할까요?\n\n이 작업은 되돌릴 수 없어요.',
+              '모든 체크리스트를 삭제할까요?\n\n이 작업은 되돌릴 수 없어요.',
         ),
         actions: [
           TextButton(
@@ -413,16 +516,15 @@ class _TodayTabState extends ConsumerState<TodayTab> {
 
     if (confirmed != true) return;
     await ref
-        .read(todayPlanViewModelProvider(selectedDate).notifier)
-        .deleteAllPlansForDate(selectedDate);
+        .read(todayChecklistViewModelProvider(selectedDate).notifier)
+        .deleteAll();
 
-    // 계획 날짜 캐시 갱신
     final monthKey = DateTime(selectedDate.year, selectedDate.month);
-    ref.invalidate(planDatesInMonthProvider(monthKey));
+    ref.invalidate(checklistDatesInMonthProvider(monthKey));
   }
 
-  // ── 계획 추가 ─────────────────────────────────────────
-  Future<void> _showAddPlanDialog(
+  // ── 체크리스트 추가 ──────────────────────────────────────
+  Future<void> _showAddChecklistDialog(
       BuildContext context, WidgetRef ref, DateTime selectedDate) async {
     final categoryList = await ref.read(categoryViewModelProvider.future);
     final validCategories = categoryList
@@ -449,26 +551,18 @@ class _TodayTabState extends ConsumerState<TodayTab> {
 
     await showDialog(
       context: context,
-      builder: (context) => _AddPlanDialog(
+      builder: (context) => _AddChecklistDialog(
         selectedDate: selectedDate,
         validCategories: validCategories,
         onAdd: ({
           required String subjectId,
-          required DateTime targetDate,
-          required int goalMinutes,
-          required String memo,
+          required String text,
         }) async {
           await ref
-              .read(todayPlanViewModelProvider(selectedDate).notifier)
-              .addPlan(
-            subjectId: subjectId,
-            targetDate: targetDate,
-            goalMinutes: goalMinutes,
-            memo: memo,
-          );
-          // 계획 날짜 캐시 갱신
+              .read(todayChecklistViewModelProvider(selectedDate).notifier)
+              .addItem(subjectId, text);
           final monthKey = DateTime(selectedDate.year, selectedDate.month);
-          ref.invalidate(planDatesInMonthProvider(monthKey));
+          ref.invalidate(checklistDatesInMonthProvider(monthKey));
         },
       ),
     );
@@ -482,12 +576,12 @@ class _TodayTabState extends ConsumerState<TodayTab> {
 
 class _MonthCalendarDialog extends StatefulWidget {
   final DateTime initialMonth;
-  final Set<DateTime> planDates;
+  final Set<DateTime> checklistDates;
   final DateTime selectedDate;
 
   const _MonthCalendarDialog({
     required this.initialMonth,
-    required this.planDates,
+    required this.checklistDates,
     required this.selectedDate,
   });
 
@@ -497,20 +591,20 @@ class _MonthCalendarDialog extends StatefulWidget {
 
 class _MonthCalendarDialogState extends State<_MonthCalendarDialog> {
   late DateTime _displayMonth;
-  Set<DateTime> _planDates = {};
+  Set<DateTime> _checklistDates = {};
   bool _loadingDates = false;
 
   @override
   void initState() {
     super.initState();
     _displayMonth = widget.initialMonth;
-    _planDates = widget.planDates;
+    _checklistDates = widget.checklistDates;
   }
 
   Future<void> _loadDatesForMonth(DateTime month) async {
     setState(() => _loadingDates = true);
-    final dates = await database.getPlanDatesInMonth(month.year, month.month);
-    if (mounted) setState(() { _planDates = dates; _loadingDates = false; });
+    final dates = await database.getChecklistDatesInMonth(month.year, month.month);
+    if (mounted) setState(() { _checklistDates = dates; _loadingDates = false; });
   }
 
   void _prevMonth() {
@@ -529,8 +623,7 @@ class _MonthCalendarDialogState extends State<_MonthCalendarDialog> {
   Widget build(BuildContext context) {
     final today = toStudyDate(DateTime.now());
     final firstDay = DateTime(_displayMonth.year, _displayMonth.month, 1);
-    // 달력 시작: 해당 월 1일의 요일 맞추기 (월=1 기준)
-    final startOffset = firstDay.weekday - 1; // 0=월, 6=일
+    final startOffset = firstDay.weekday - 1;
     final daysInMonth = DateUtils.getDaysInMonth(_displayMonth.year, _displayMonth.month);
     final totalCells = startOffset + daysInMonth;
     final rows = (totalCells / 7).ceil();
@@ -604,7 +697,7 @@ class _MonthCalendarDialogState extends State<_MonthCalendarDialog> {
                         _displayMonth.year, _displayMonth.month, dayNum);
                     final isSelected = date == widget.selectedDate;
                     final isToday = date == today;
-                    final hasPlan = _planDates.contains(date);
+                    final hasChecklist = _checklistDates.contains(date);
                     final isSat = date.weekday == DateTime.saturday;
                     final isSun = date.weekday == DateTime.sunday;
 
@@ -647,8 +740,8 @@ class _MonthCalendarDialogState extends State<_MonthCalendarDialog> {
                                 ),
                               ),
                             ),
-                            // 계획 있는 날 빨간 점
-                            if (hasPlan)
+                            // 체크리스트 있는 날 빨간 점
+                            if (hasChecklist)
                               Positioned(
                                 top: 2,
                                 right: 2,
@@ -689,35 +782,31 @@ class _MonthCalendarDialogState extends State<_MonthCalendarDialog> {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 계획 추가 다이얼로그
+// 체크리스트 추가 다이얼로그
 // ══════════════════════════════════════════════════════════════
 
-class _AddPlanDialog extends StatefulWidget {
+class _AddChecklistDialog extends StatefulWidget {
   final DateTime selectedDate;
   final List<Map<String, dynamic>> validCategories;
   final Future<void> Function({
   required String subjectId,
-  required DateTime targetDate,
-  required int goalMinutes,
-  required String memo,
+  required String text,
   }) onAdd;
 
-  const _AddPlanDialog({
+  const _AddChecklistDialog({
     required this.selectedDate,
     required this.validCategories,
     required this.onAdd,
   });
 
   @override
-  State<_AddPlanDialog> createState() => _AddPlanDialogState();
+  State<_AddChecklistDialog> createState() => _AddChecklistDialogState();
 }
 
-class _AddPlanDialogState extends State<_AddPlanDialog> {
+class _AddChecklistDialogState extends State<_AddChecklistDialog> {
   late Map<String, dynamic> _selectedCategory;
   late Subject _selectedSubject;
-  TimeOfDay? _selectedTime;
-  final _goalCtrl = TextEditingController(text: '60');
-  final _memoCtrl = TextEditingController();
+  final _textCtrl = TextEditingController();
   bool _isLoading = false;
 
   @override
@@ -726,64 +815,22 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
     _selectedCategory = widget.validCategories.first;
     _selectedSubject =
         (_selectedCategory['subjects'] as List<Subject>).first;
-    _goalCtrl.addListener(() => setState(() {}));
+    _textCtrl.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
-    _goalCtrl.dispose();
-    _memoCtrl.dispose();
+    _textCtrl.dispose();
     super.dispose();
   }
 
   List<Subject> get _currentSubjects =>
       _selectedCategory['subjects'] as List<Subject>;
 
-  String? get _endTimeString {
-    if (_selectedTime == null) return null;
-    final goalMinutes = int.tryParse(_goalCtrl.text) ?? 0;
-    if (goalMinutes <= 0) return null;
-    final totalMinutes =
-        _selectedTime!.hour * 60 + _selectedTime!.minute + goalMinutes;
-    final endHour = (totalMinutes ~/ 60) % 24;
-    final endMinute = totalMinutes % 60;
-    final endTime = TimeOfDay(hour: endHour, minute: endMinute);
-    return endTime.format(context);
-  }
-
-  Future<void> _pickTime() async {
-    final now = TimeOfDay.now();
-    final isToday = widget.selectedDate ==
-        DateTime(DateTime.now().year, DateTime.now().month,
-            DateTime.now().day);
-
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: _selectedTime ?? now,
-    );
-    if (picked == null) return;
-
-    if (isToday) {
-      final nowMinutes = now.hour * 60 + now.minute;
-      final pickedMinutes = picked.hour * 60 + picked.minute;
-      if (pickedMinutes < nowMinutes) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('현재 시간 이전은 설정할 수 없어요')),
-          );
-        }
-        return;
-      }
-    }
-    setState(() => _selectedTime = picked);
-  }
-
   @override
   Widget build(BuildContext context) {
-    final endTime = _endTimeString;
-
     return AlertDialog(
-      title: const Text('계획 추가'),
+      title: const Text('체크리스트 추가'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -834,113 +881,15 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
               },
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                const Text('시작 시간',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(width: 4),
-                Text('*',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.error)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            InkWell(
-              onTap: _pickTime,
-              borderRadius: BorderRadius.circular(4),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 12),
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: _selectedTime != null
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.grey.shade400,
-                  ),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.access_time,
-                        color: _selectedTime != null
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey),
-                    const SizedBox(width: 8),
-                    Text(
-                      _selectedTime != null
-                          ? _selectedTime!.format(context)
-                          : '시작 시간을 선택해주세요',
-                      style: TextStyle(
-                          color: _selectedTime != null
-                              ? null
-                              : Colors.grey),
-                    ),
-                    const Spacer(),
-                    if (_selectedTime != null)
-                      GestureDetector(
-                        onTap: () =>
-                            setState(() => _selectedTime = null),
-                        child: const Icon(Icons.close,
-                            size: 16, color: Colors.grey),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text('목표 공부 시간',
+            const Text('할 일',
                 style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
             TextField(
-              controller: _goalCtrl,
-              keyboardType: TextInputType.number,
+              controller: _textCtrl,
               decoration: const InputDecoration(
                 isDense: true,
                 border: OutlineInputBorder(),
-                suffixText: '분',
-              ),
-            ),
-            if (endTime != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .primaryContainer
-                      .withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.flag,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(width: 6),
-                    Text(
-                      '종료 예정: $endTime',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            const Text('메모',
-                style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 4),
-            TextField(
-              controller: _memoCtrl,
-              decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(),
-                hintText: '선택 사항',
+                hintText: '예: 교과서 3장 풀기',
               ),
             ),
           ],
@@ -951,22 +900,13 @@ class _AddPlanDialogState extends State<_AddPlanDialog> {
             onPressed: () => Navigator.pop(context),
             child: const Text('취소')),
         ElevatedButton(
-          onPressed: (_isLoading || _selectedTime == null)
+          onPressed: (_isLoading || _textCtrl.text.isEmpty)
               ? null
               : () async {
             setState(() => _isLoading = true);
-            final targetDate = DateTime(
-              widget.selectedDate.year,
-              widget.selectedDate.month,
-              widget.selectedDate.day,
-              _selectedTime!.hour,
-              _selectedTime!.minute,
-            );
             await widget.onAdd(
               subjectId: _selectedSubject.id,
-              targetDate: targetDate,
-              goalMinutes: int.tryParse(_goalCtrl.text) ?? 60,
-              memo: _memoCtrl.text,
+              text: _textCtrl.text,
             );
             if (mounted) Navigator.pop(context);
           },
@@ -1021,103 +961,6 @@ class _EmptyHint extends StatelessWidget {
       child: Text(message,
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.grey.shade500)),
-    );
-  }
-}
-
-// ── 계획 카드 ─────────────────────────────────────────────
-class _PlanCard extends ConsumerStatefulWidget {
-  final StudyPlan plan;
-  final Subject subject;
-  final DateTime date;
-  final int index;
-  const _PlanCard(
-      {required this.plan, required this.subject, required this.date, required this.index});
-
-  @override
-  ConsumerState<_PlanCard> createState() => _PlanCardState();
-}
-
-class _PlanCardState extends ConsumerState<_PlanCard> {
-  bool _showDelete = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _colorFromHex(widget.subject.colorHex);
-    final goalMinutes = widget.plan.goalMinutes;
-    final rawDate = widget.plan.targetDate;
-    final localDate = rawDate.toLocal();
-    final hasTime = localDate.hour != 0 || localDate.minute != 0;
-
-    debugPrint('[_PlanCard] raw=$rawDate, isUtc=${rawDate.isUtc}, '
-        'ms=${rawDate.millisecondsSinceEpoch}, '
-        'local=$localDate, hour=${localDate.hour}');
-
-    String subtitle;
-    if (hasTime) {
-      final startTime = TimeOfDay(
-          hour: localDate.hour,
-          minute: localDate.minute);
-      final endTotalMinutes =
-          startTime.hour * 60 + startTime.minute + goalMinutes;
-      final endTime = TimeOfDay(
-          hour: (endTotalMinutes ~/ 60) % 24,
-          minute: endTotalMinutes % 60);
-      subtitle =
-      '${startTime.format(context)} → ${endTime.format(context)} ($goalMinutes분)';
-    } else {
-      subtitle = '목표: ${goalMinutes}분';
-    }
-    if (widget.plan.memo.isNotEmpty) subtitle += ' · ${widget.plan.memo}';
-
-    return GestureDetector(
-      onLongPress: () => setState(() => _showDelete = !_showDelete),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        margin: const EdgeInsets.only(bottom: 8),
-        decoration: BoxDecoration(
-          color: _showDelete
-              ? Colors.red.shade50
-              : Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: _showDelete
-                ? Colors.red.shade200
-                : Colors.transparent,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: ListTile(
-          leading: CircleAvatar(
-            backgroundColor: color.withOpacity(0.2),
-            child: Icon(Icons.book, color: color, size: 20),
-          ),
-          title: Text(widget.subject.name,
-              style: const TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Text(subtitle),
-          trailing: _showDelete
-              ? IconButton(
-            icon: const Icon(Icons.delete, color: Colors.red),
-            onPressed: () async {
-              await ref
-                  .read(todayPlanViewModelProvider(widget.date)
-                  .notifier)
-                  .deletePlan(widget.plan.id);
-              // 계획 날짜 캐시 갱신
-              final monthKey = DateTime(
-                  widget.date.year, widget.date.month);
-              ref.invalidate(planDatesInMonthProvider(monthKey));
-            },
-          )
-              : null,
-        ),
-      ),
     );
   }
 }
@@ -1196,6 +1039,68 @@ class _SessionCardState extends ConsumerState<_SessionCard> {
               ? const Icon(Icons.circle,
               color: Colors.green, size: 12)
               : null,
+        ),
+      ),
+    );
+  }
+}
+
+// ── 체크리스트 항목 타일 ─────────────────────────────────
+class _ChecklistItemTile extends ConsumerStatefulWidget {
+  final ChecklistItem item;
+  final Subject subject;
+  final DateTime date;
+  const _ChecklistItemTile(
+      {required this.item, required this.subject, required this.date});
+
+  @override
+  ConsumerState<_ChecklistItemTile> createState() =>
+      _ChecklistItemTileState();
+}
+
+class _ChecklistItemTileState extends ConsumerState<_ChecklistItemTile> {
+  bool _showDelete = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _colorFromHex(widget.subject.colorHex);
+
+    return GestureDetector(
+      onLongPress: () => setState(() => _showDelete = !_showDelete),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 16, top: 2, bottom: 2),
+        child: Row(
+          children: [
+            Checkbox(
+              value: widget.item.isChecked,
+              activeColor: color,
+              onChanged: (value) async {
+                await ref
+                    .read(todayChecklistViewModelProvider(widget.date).notifier)
+                    .toggleItem(widget.item.id, value ?? false);
+              },
+            ),
+            Expanded(
+              child: Text(
+                widget.item.content,
+                style: TextStyle(
+                  decoration:
+                      widget.item.isChecked ? TextDecoration.lineThrough : null,
+                  color: widget.item.isChecked ? Colors.grey : null,
+                ),
+              ),
+            ),
+            if (_showDelete)
+              IconButton(
+                icon: const Icon(Icons.close, size: 18, color: Colors.red),
+                onPressed: () async {
+                  await ref
+                      .read(todayChecklistViewModelProvider(widget.date)
+                          .notifier)
+                      .deleteItem(widget.item.id);
+                },
+              ),
+          ],
         ),
       ),
     );

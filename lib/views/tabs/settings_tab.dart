@@ -98,6 +98,11 @@ class SettingsTab extends ConsumerWidget {
           _OpenRouterApiKeyTile(),
           _ApiKeyTile(),
 
+          const Divider(height: 32),
+
+          // ── 공부 모드 설정 섹션 ──────────────────────────
+          _StudyModeSettingTile(),
+
           const SizedBox(height: 40),
         ],
       ),
@@ -408,16 +413,10 @@ class _SubjectTile extends ConsumerWidget {
   }
 
   Future<void> _showDeleteSubjectDialog(BuildContext context, WidgetRef ref) async {
-    final planDates = await database.getPlanDatesBySubject(subject.id);
-
     if (!context.mounted) return;
     showDialog(
       context: context,
       builder: (context) {
-        final dateText = planDates.isEmpty
-            ? '공부계획이 없습니다.'
-            : '공부계획이 잡힌 날짜:\n${planDates.map(_formatDate).join('\n')}';
-
         return AlertDialog(
           title: const Text('과목 삭제'),
           content: Column(
@@ -433,9 +432,9 @@ class _SubjectTile extends ConsumerWidget {
                   color: Colors.red.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(
-                  '⚠️ 관련 공부계획 ${planDates.length}건도 함께 삭제됩니다.\n\n$dateText',
-                  style: const TextStyle(fontSize: 12),
+                child: const Text(
+                  '⚠️ 관련 체크리스트와 공부 기록도 함께 삭제됩니다.',
+                  style: TextStyle(fontSize: 12),
                 ),
               ),
             ],
@@ -461,9 +460,6 @@ class _SubjectTile extends ConsumerWidget {
     );
   }
 
-  static String _formatDate(DateTime date) {
-    return '${date.year}년 ${date.month}월 ${date.day}일';
-  }
 }
 
 Color _colorFromHex(String hex) {
@@ -1064,6 +1060,40 @@ class _ThemeSettingTile extends ConsumerWidget {
           groupValue: themeMode,
           onChanged: (v) =>
               ref.read(appThemeModeProvider.notifier).setTheme(v!),
+        ),
+      ],
+    );
+  }
+}
+
+// ── 공부 모드 설정 ────────────────────────────────────────
+class _StudyModeSettingTile extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ExpansionTile(
+      leading: const Icon(Icons.school_outlined),
+      title: Text('공부 모드',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.bold)),
+      subtitle: const Text('폰 뒤집기 공부 모드 설정',
+          style: TextStyle(fontSize: 12)),
+      children: [
+        ListTile(
+          title: const Text('Grace Period'),
+          subtitle: const Text('폰을 들었을 때 대기 시간 (기본: 30초)'),
+          trailing: const Text('30초'),
+        ),
+        ListTile(
+          title: const Text('오버레이 권한'),
+          subtitle: const Text('잠금화면에서 공부 상태 표시'),
+          trailing: ElevatedButton(
+            onPressed: () async {
+              // TODO: 오버레이 권한 확인 및 요청
+            },
+            child: const Text('권한 확인'),
+          ),
         ),
       ],
     );

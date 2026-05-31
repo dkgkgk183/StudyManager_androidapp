@@ -6,7 +6,6 @@ import 'tabs/today_tab.dart';
 import 'tabs/stats_tab.dart';
 import 'tabs/ai_tab.dart';
 import 'tabs/settings_tab.dart';
-
 class MainScreen extends ConsumerWidget {
   const MainScreen({super.key});
 

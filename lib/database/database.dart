@@ -46,14 +46,14 @@ class Subjects extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-// ── 공부 계획 테이블 ──────────────────────────────────────
-class StudyPlans extends Table {
+// ── 체크리스트 항목 테이블 ─────────────────────────────────
+class ChecklistItems extends Table {
   TextColumn get id => text()();
   TextColumn get subjectId => text()();
-  DateTimeColumn get targetDate => dateTime()();
-  IntColumn get goalMinutes => integer()();
-  TextColumn get memo => text().withDefault(const Constant(''))();
-  BoolColumn get isCompleted => boolean().withDefault(const Constant(false))();
+  TextColumn get date => text()();           // "yyyy-MM-dd"
+  TextColumn get content => text()();
+  BoolColumn get isChecked => boolean().withDefault(const Constant(false))();
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
   DateTimeColumn get createdAt => dateTime()();
 
   @override
@@ -70,6 +70,7 @@ class StudySessions extends Table {
   IntColumn get durationSeconds => integer().withDefault(const Constant(0))();
   IntColumn get trayOpenCount => integer().withDefault(const Constant(0))();
   IntColumn get selfScore => integer().withDefault(const Constant(0))();
+  IntColumn get penaltyCount => integer().withDefault(const Constant(0))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -87,12 +88,12 @@ class PomodoroSettings extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-@DriftDatabase(tables: [SubjectCategories, Subjects, StudyPlans, StudySessions, PomodoroSettings])
+@DriftDatabase(tables: [SubjectCategories, Subjects, ChecklistItems, StudySessions, PomodoroSettings])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -103,6 +104,11 @@ class AppDatabase extends _$AppDatabase {
       if (from < 2) {
         await m.createTable(subjectCategories);
         await m.addColumn(subjects, subjects.categoryId);
+      }
+      if (from < 3) {
+        await m.createTable(checklistItems);
+        await m.addColumn(studySessions, studySessions.penaltyCount);
+        await customStatement('DROP TABLE IF EXISTS study_plans');
       }
     },
   );
@@ -151,96 +157,6 @@ class AppDatabase extends _$AppDatabase {
   Future<int> deleteSubject(String id) =>
       (delete(subjects)..where((t) => t.id.equals(id))).go();
 
-  // ── StudyPlans ────────────────────────────────────────
-  Future<int> insertPlan(StudyPlansCompanion entry) =>
-      into(studyPlans).insert(entry, mode: InsertMode.insertOrReplace);
-
-  Future<List<StudyPlan>> getAllPlans() =>
-      (select(studyPlans)..orderBy([(t) => OrderingTerm(expression: t.targetDate)])).get();
-
-  // DEBUG: 모든 plan의 target_date 확인
-  Future<void> debugAllPlanDates() async {
-    final result = await customSelect(
-      'SELECT id, target_date FROM study_plans ORDER BY target_date',
-    ).get();
-    for (final row in result) {
-      final raw = row.data['target_date'];
-      final id = row.data['id'];
-      final dt = DateTime.fromMillisecondsSinceEpoch((raw as int) * 1000);
-      print('[ALL PLANS] id=$id, raw=$raw, local=$dt, hour=${dt.hour}');
-    }
-  }
-
-  // DEBUG: raw SQL로 target_date 확인
-  Future<void> debugRawTargetDate(String id) async {
-    final result = await customSelect(
-      'SELECT target_date, typeof(target_date) as col_type FROM study_plans WHERE id = ?',
-      variables: [Variable.withString(id)],
-    ).get();
-    for (final row in result) {
-      final raw = row.data['target_date'];
-      final type = row.data['col_type'];
-      print('[DB RAW] id=$id, target_date=$raw, type=$type');
-    }
-  }
-
-  Future<List<StudyPlan>> getPlansByDate(DateTime date) {
-    final start = studyDayStart(date);
-    final end = studyDayEnd(date);
-    return (select(studyPlans)
-      ..where((t) => t.targetDate.isBiggerOrEqualValue(start) &
-      t.targetDate.isSmallerThanValue(end))
-      ..orderBy([(t) => OrderingTerm(expression: t.createdAt)]))
-        .get();
-  }
-
-  Future<bool> updatePlan(StudyPlan plan) =>
-      update(studyPlans).replace(plan);
-
-  Future<int> deletePlan(String id) =>
-      (delete(studyPlans)..where((t) => t.id.equals(id))).go();
-
-  Future<void> markPlanCompleted(String id, bool completed) =>
-      (update(studyPlans)..where((t) => t.id.equals(id)))
-          .write(StudyPlansCompanion(isCompleted: Value(completed)));
-
-  // ── 특정 날짜의 계획 조회 (캘린더일 기준, 삭제용 ID 수집) ──
-  Future<List<StudyPlan>> getPlansByCalendarDay(DateTime date) {
-    final start = DateTime(date.year, date.month, date.day);
-    final end = start.add(const Duration(days: 1));
-    return (select(studyPlans)
-      ..where((t) => t.targetDate.isBiggerOrEqualValue(start) &
-      t.targetDate.isSmallerThanValue(end)))
-        .get();
-  }
-
-  // ── 특정 날짜의 계획 전체 삭제 (캘린더일 기준) ────────
-  Future<int> deletePlansByDate(DateTime date) {
-    final start = DateTime(date.year, date.month, date.day);
-    final end = start.add(const Duration(days: 1));
-    return (delete(studyPlans)
-      ..where((t) =>
-      t.targetDate.isBiggerOrEqualValue(start) &
-      t.targetDate.isSmallerThanValue(end)))
-        .go();
-  }
-
-  // ── 특정 월의 계획이 존재하는 날짜 Set 반환 ──────────
-  Future<Set<DateTime>> getPlanDatesInMonth(int year, int month) async {
-    // 캘린더일 기준: 월의 시작은 1일 00:00, 월의 끝은 다음달 1일 00:00
-    final start = DateTime(year, month, 1);
-    final end = DateTime(year, month + 1, 1);
-    final plans = await (select(studyPlans)
-      ..where((t) =>
-      t.targetDate.isBiggerOrEqualValue(start) &
-      t.targetDate.isSmallerThanValue(end)))
-        .get();
-    // 캘린더일 기준으로 반환 (toStudyDate 사용 안 함)
-    return plans
-        .map((p) => DateTime(p.targetDate.year, p.targetDate.month, p.targetDate.day))
-        .toSet();
-  }
-
   // ── StudySessions ─────────────────────────────────────
   Future<int> insertSession(StudySessionsCompanion entry) =>
       into(studySessions).insert(entry, mode: InsertMode.insertOrReplace);
@@ -269,19 +185,6 @@ class AppDatabase extends _$AppDatabase {
   Future<int> deleteSessionsBySubject(String subjectId) =>
       (delete(studySessions)..where((t) => t.subjectId.equals(subjectId))).go();
 
-  // 특정 과목의 계획 날짜 목록 조회
-  Future<List<DateTime>> getPlanDatesBySubject(String subjectId) async {
-    final plans = await (select(studyPlans)
-      ..where((t) => t.subjectId.equals(subjectId))
-      ..orderBy([(t) => OrderingTerm.asc(t.targetDate)]))
-        .get();
-    return plans.map((p) => p.targetDate).toList();
-  }
-
-  // 특정 과목의 계획 전체 삭제
-  Future<int> deletePlansBySubject(String subjectId) =>
-      (delete(studyPlans)..where((t) => t.subjectId.equals(subjectId))).go();
-
   // ── PomodoroSettings ──────────────────────────────────
   Future<PomodoroSetting?> getSettings() =>
       (select(pomodoroSettings)..limit(1)).getSingleOrNull();
@@ -290,29 +193,6 @@ class AppDatabase extends _$AppDatabase {
       into(pomodoroSettings).insertOnConflictUpdate(entry);
 
   // ── 조인 쿼리 ─────────────────────────────────────────
-  Selectable<TypedResult> getPlansWithSubject(DateTime date) {
-    final start = studyDayStart(date);
-    final end = studyDayEnd(date);
-    return (select(studyPlans).join([
-      innerJoin(subjects, subjects.id.equalsExp(studyPlans.subjectId)),
-    ])
-      ..where(studyPlans.targetDate.isBiggerOrEqualValue(start) &
-      studyPlans.targetDate.isSmallerThanValue(end))
-      ..orderBy([OrderingTerm.asc(studyPlans.createdAt)]));
-  }
-
-  /// 캘린더일 기준(00:00~23:59:59) 쿼리 — 오늘 탭 전용
-  Selectable<TypedResult> getPlansWithSubjectByCalendarDay(DateTime date) {
-    final start = DateTime(date.year, date.month, date.day);
-    final end = start.add(const Duration(days: 1));
-    return (select(studyPlans).join([
-      innerJoin(subjects, subjects.id.equalsExp(studyPlans.subjectId)),
-    ])
-      ..where(studyPlans.targetDate.isBiggerOrEqualValue(start) &
-      studyPlans.targetDate.isSmallerThanValue(end))
-      ..orderBy([OrderingTerm.asc(studyPlans.targetDate)]));
-  }
-
   Selectable<TypedResult> getSessionsWithSubject(DateTime date) {
     final start = studyDayStart(date);
     final end = studyDayEnd(date);
@@ -338,10 +218,60 @@ class AppDatabase extends _$AppDatabase {
           (b['totalSeconds'] as int).compareTo(a['totalSeconds'] as int));
   }
 
+  // ── ChecklistItems ────────────────────────────────────
+  Future<int> insertChecklistItem(ChecklistItemsCompanion entry) =>
+      into(checklistItems).insert(entry, mode: InsertMode.insertOrReplace);
+
+  Future<List<ChecklistItem>> getAllChecklistItems() =>
+      (select(checklistItems)..orderBy([(t) => OrderingTerm(expression: t.date)])).get();
+
+  Future<List<ChecklistItem>> getChecklistItemsByDate(String date) =>
+      (select(checklistItems)
+        ..where((t) => t.date.equals(date))
+        ..orderBy([(t) => OrderingTerm(expression: t.sortOrder)]))
+          .get();
+
+  Selectable<TypedResult> getChecklistItemsWithSubject(String date) {
+    return (select(checklistItems).join([
+      innerJoin(subjects, subjects.id.equalsExp(checklistItems.subjectId)),
+    ])
+      ..where(checklistItems.date.equals(date))
+      ..orderBy([OrderingTerm.asc(checklistItems.sortOrder)]));
+  }
+
+  Future<void> toggleChecklistItem(String id, bool isChecked) =>
+      (update(checklistItems)..where((t) => t.id.equals(id)))
+          .write(ChecklistItemsCompanion(isChecked: Value(isChecked)));
+
+  Future<bool> updateChecklistItem(ChecklistItem item) =>
+      update(checklistItems).replace(item);
+
+  Future<int> deleteChecklistItem(String id) =>
+      (delete(checklistItems)..where((t) => t.id.equals(id))).go();
+
+  // 특정 과목의 체크리스트 전체 삭제
+  Future<int> deleteChecklistItemsBySubject(String subjectId) =>
+      (delete(checklistItems)..where((t) => t.subjectId.equals(subjectId))).go();
+
+  Future<int> deleteChecklistItemsByDate(String date) =>
+      (delete(checklistItems)..where((t) => t.date.equals(date))).go();
+
+  Future<Set<DateTime>> getChecklistDatesInMonth(int year, int month) async {
+    final start = '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-01';
+    final end = '${year.toString().padLeft(4, '0')}-${(month + 1).toString().padLeft(2, '0')}-01';
+    final items = await (select(checklistItems)
+      ..where((t) => t.date.isBiggerOrEqualValue(start) & t.date.isSmallerThanValue(end)))
+        .get();
+    return items.map((item) {
+      final parts = item.date.split('-');
+      return DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+    }).toSet();
+  }
+
   // ── 전체 초기화 ───────────────────────────────────────
   Future<void> clearAllData() => transaction(() async {
     await delete(studySessions).go();
-    await delete(studyPlans).go();
+    await delete(checklistItems).go();
     await delete(subjects).go();
     await delete(subjectCategories).go();
   });
