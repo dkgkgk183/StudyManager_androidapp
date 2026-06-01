@@ -9,6 +9,8 @@ import '../../main.dart' show database;
 import 'package:drift/drift.dart' show Value;
 import '../../services/study_service.dart';
 
+enum StudyMode { idle, waiting, active, paused }
+
 // ── 월별 체크리스트 날짜 Provider ──────────────────────────
 final checklistDatesInMonthProvider =
 FutureProvider.family<Set<DateTime>, DateTime>((ref, monthKey) async {
@@ -27,12 +29,20 @@ class _TodayTabState extends ConsumerState<TodayTab>
   late DateTime _weekStart;
 
   // ── 공부 모드 상태 ──────────────────────────────────────
-  bool _isStudyActive = false;
+  StudyMode _studyMode = StudyMode.idle;
   int _studySeconds = 0;
   Timer? _studyTimer;
   String? _sessionId;
   String? _selectedSubjectId;
   String _studySubjectName = '';
+
+  // ── 일시정지 모드 상태 ─────────────────────────────────
+  int _pauseSeconds = 30;
+  Timer? _pauseTimer;
+  Map<String, bool> _checklistSnapshot = {};
+
+  // ── 센서 ───────────────────────────────────────────────
+  Timer? _sensorPollTimer;
 
   // ── 깜빡임 애니메이션 ─────────────────────────────────
   late AnimationController _blinkController;
@@ -58,9 +68,13 @@ class _TodayTabState extends ConsumerState<TodayTab>
   @override
   void dispose() {
     _studyTimer?.cancel();
+    _pauseTimer?.cancel();
+    _sensorPollTimer?.cancel();
+    StudyService.stopSensor();
     _blinkController.dispose();
     super.dispose();
   }
+
 
   /// 이전 실행에서 종료되지 않은 세션 정리 (비정상 종료 복구)
   Future<void> _closeOrphanedSessions() async {
@@ -115,14 +129,48 @@ class _TodayTabState extends ConsumerState<TodayTab>
         .startSession(subjectId: subject.id);
 
     setState(() {
-      _isStudyActive = true;
+      _studyMode = StudyMode.waiting;
       _studySeconds = 0;
       _sessionId = sessionId;
       _studySubjectName = subject.name;
     });
 
-    // 포그라운드 서비스 시작
-    await StudyService.startService(subject.name);
+    // 포그라운드 서비스 시작 (대기 상태 알림)
+    await StudyService.startService('대기 중...');
+
+    // 가속도센서 시작 (뒤집기 감지)
+    _startSensorListening();
+  }
+
+  void _startSensorListening() {
+    _sensorPollTimer?.cancel();
+    StudyService.startSensor();
+    debugPrint('[Sensor] 센서 폴링 시작');
+
+    _sensorPollTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
+      final z = await StudyService.getAccelZ();
+      debugPrint('[Sensor] mode=$_studyMode z=${z.toStringAsFixed(2)}');
+
+      if (_studyMode == StudyMode.waiting && z < -9.5) {
+        debugPrint('[Sensor] → 뒤집힘 감지! _startActiveStudy()');
+        _startActiveStudy();
+      } else if (_studyMode == StudyMode.active && z > 0) {
+        debugPrint('[Sensor] → 들어올림 감지, _onPhoneLifted()');
+        _onPhoneLifted();
+      }
+    });
+  }
+
+
+  void _startActiveStudy() {
+    debugPrint('[Study] _startActiveStudy() 호출됨');
+    setState(() {
+      _studyMode = StudyMode.active;
+      _studySeconds = 0;
+    });
+
+    // 포그라운드 알림 갱신
+    StudyService.startService(_studySubjectName);
 
     _studyTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
@@ -132,8 +180,78 @@ class _TodayTabState extends ConsumerState<TodayTab>
     });
   }
 
+  void _onPhoneLifted() {
+    debugPrint('[Study] _onPhoneLifted() mode=$_studyMode');
+    if (_studyMode != StudyMode.active) return;
+    setState(() {
+      _studyMode = StudyMode.paused;
+      _pauseSeconds = 30;
+    });
+    // 체크리스트 스냅샷 저장
+    _snapshotChecklistState();
+    _pauseTimer?.cancel();
+    _pauseTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) { t.cancel(); return; }
+      setState(() => _pauseSeconds--);
+      if (_pauseSeconds <= 0) {
+        t.cancel();
+        _applyPausePenalty();
+      }
+    });
+  }
+
+  void _snapshotChecklistState() {
+    final selectedDate = ref.read(selectedDateProvider);
+    final checklistAsync = ref.read(todayChecklistViewModelProvider(selectedDate));
+    final items = checklistAsync.valueOrNull;
+    if (items == null) return;
+    _checklistSnapshot = {
+      for (final item in items) (item['item'] as ChecklistItem).id: (item['item'] as ChecklistItem).isChecked,
+    };
+  }
+
+  void _onChecklistChanged(String itemId, bool newValue) {
+    if (_studyMode != StudyMode.paused) return;
+    // 스냅샷과 새 값 비교
+    if (_checklistSnapshot.containsKey(itemId) &&
+        _checklistSnapshot[itemId] != newValue) {
+      // 체크 상태가 실제로 변경됨 → 일시정지 해제
+      _pauseTimer?.cancel();
+      setState(() => _studyMode = StudyMode.active);
+    }
+  }
+
+  Future<void> _applyPausePenalty() async {
+    final selectedDate = ref.read(selectedDateProvider);
+    final checklistAsync = ref.read(todayChecklistViewModelProvider(selectedDate));
+    final items = checklistAsync.valueOrNull;
+    if (items == null) return;
+
+    bool changed = false;
+    for (final item in items) {
+      final ci = item['item'] as ChecklistItem;
+      if (_checklistSnapshot.containsKey(ci.id) &&
+          _checklistSnapshot[ci.id] != ci.isChecked) {
+        changed = true;
+        break;
+      }
+    }
+
+    if (!changed && _sessionId != null) {
+      await ref
+          .read(studySessionViewModelProvider(selectedDate).notifier)
+          .incrementTrayOpen(_sessionId!);
+    }
+
+    if (mounted) setState(() => _studyMode = StudyMode.active);
+  }
+
   Future<void> _endStudy() async {
     _studyTimer?.cancel();
+    _pauseTimer?.cancel();
+    _sensorPollTimer?.cancel();
+    _sensorPollTimer = null;
+    await StudyService.stopSensor();
     await StudyService.stopService();
 
     final sessionId = _sessionId;
@@ -141,7 +259,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
     if (mounted) {
       setState(() {
-        _isStudyActive = false;
+        _studyMode = StudyMode.idle;
         _sessionId = null;
         _selectedSubjectId = null;
         _studySubjectName = '';
@@ -238,13 +356,8 @@ class _TodayTabState extends ConsumerState<TodayTab>
         : '$firstMonth - ${DateFormat('M월', 'ko').format(days.last)}';
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          DateFormat('yyyy년 M월 d일 (E)', 'ko').format(selectedDate),
-          style: const TextStyle(fontSize: 17),
-        ),
-      ),
-      body: Column(
+      body: SafeArea(
+        child: Column(
         children: [
           // ── 주간 날짜 바 ──────────────────────────────
           Container(
@@ -471,7 +584,39 @@ class _TodayTabState extends ConsumerState<TodayTab>
                 ),
                 const SizedBox(height: 8),
                 // ── 공부 상태 배너 ──────────────────────────
-                if (_isStudyActive)
+                if (_studyMode == StudyMode.waiting)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.orange.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(Icons.phone_android,
+                            size: 36, color: Colors.orange),
+                        const SizedBox(height: 8),
+                        const Text(
+                          '대기 중...',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '폰을 뒤집어주세요',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_studyMode == StudyMode.active)
                   Container(
                     width: double.infinity,
                     margin: const EdgeInsets.only(bottom: 12),
@@ -520,6 +665,41 @@ class _TodayTabState extends ConsumerState<TodayTab>
                       ],
                     ),
                   ),
+                if (_studyMode == StudyMode.paused)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.red.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        FadeTransition(
+                          opacity: _blinkController,
+                          child: const Icon(Icons.warning,
+                              size: 36, color: Colors.red),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '일시정지 중 ($_pauseSeconds초)',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          '체크리스트를 완료하세요!',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      ],
+                    ),
+                  ),
                 checklistAsync.when(
                   data: (items) {
                     if (items.isEmpty) {
@@ -543,7 +723,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
                         final isSelected =
                             _selectedSubjectId == subject.id;
                         return GestureDetector(
-                          onTap: _isStudyActive
+                          onTap: _studyMode != StudyMode.idle
                               ? null
                               : () {
                                   setState(() {
@@ -595,7 +775,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
                                         ),
                                       ),
                                       const Spacer(),
-                                      if (!_isStudyActive)
+                                      if (_studyMode == StudyMode.idle)
                                         Icon(
                                           isSelected
                                               ? Icons.radio_button_checked
@@ -636,6 +816,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
                                         subject: subject,
                                         date: selectedDate,
                                         index: index,
+                                        onChanged: () => _onChecklistChanged(checklistItem.id, !checklistItem.isChecked),
                                       );
                                     },
                                   ),
@@ -654,12 +835,12 @@ class _TodayTabState extends ConsumerState<TodayTab>
                 // ── 공부 시작/종료 버튼 ─────────────────
                 checklistAsync.when(
                   data: (items) {
-                    if (items.isEmpty && !_isStudyActive) {
+                    if (items.isEmpty && _studyMode == StudyMode.idle) {
                       return const SizedBox.shrink();
                     }
                     final hasRecords =
                         sessionsAsync.valueOrNull?.isNotEmpty == true;
-                    if (_isStudyActive) {
+                    if (_studyMode != StudyMode.idle) {
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         child: ElevatedButton.icon(
@@ -719,6 +900,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -1284,8 +1466,9 @@ class _ChecklistItemTile extends ConsumerStatefulWidget {
   final Subject subject;
   final DateTime date;
   final int index;
+  final VoidCallback? onChanged;
   const _ChecklistItemTile(
-      {super.key, required this.item, required this.subject, required this.date, required this.index});
+      {super.key, required this.item, required this.subject, required this.date, required this.index, this.onChanged});
 
   @override
   ConsumerState<_ChecklistItemTile> createState() =>
@@ -1320,6 +1503,7 @@ class _ChecklistItemTileState extends ConsumerState<_ChecklistItemTile> {
                 await ref
                     .read(todayChecklistViewModelProvider(widget.date).notifier)
                     .toggleItem(widget.item.id, value ?? false);
+                widget.onChanged?.call();
               },
             ),
             Expanded(

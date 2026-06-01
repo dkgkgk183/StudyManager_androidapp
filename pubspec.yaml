@@ -28,6 +28,7 @@ dependencies:
   sensors_plus: ^6.0.0
   flutter_overlay_window: ^0.5.0
   flutter_local_notifications: ^19.2.1
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:

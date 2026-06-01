@@ -11,8 +11,8 @@ class StatsTab extends ConsumerWidget {
     final statsAsync = ref.watch(statsViewModelProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('공부 통계')),
-      body: statsAsync.when(
+      body: SafeArea(
+        child: statsAsync.when(
         data: (stats) {
           if (stats.isEmpty) {
             return const Center(
@@ -108,6 +108,7 @@ class StatsTab extends ConsumerWidget {
         },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, s) => Center(child: Text('오류: $e')),
+        ),
       ),
     );
   }

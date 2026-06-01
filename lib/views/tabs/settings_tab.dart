@@ -6,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../services/api_key_service.dart';
 import '../../services/supabase_sync_service.dart';
-import '../../services/overlay_service.dart';
 import '../../viewmodels/sync_provider.dart';
 import '../../database/database.dart';
 import '../../main.dart';
@@ -25,8 +24,8 @@ class SettingsTab extends ConsumerWidget {
     final categoriesAsync = ref.watch(categoryViewModelProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('설정')),
-      body: ListView(
+      body: SafeArea(
+        child: ListView(
         children: [
           // ── 과목 관리 섹션 ────────────────────────────────
           Padding(
@@ -104,8 +103,14 @@ class SettingsTab extends ConsumerWidget {
           // ── 공부 모드 설정 섹션 ──────────────────────────
           _StudyModeSettingTile(),
 
+          const Divider(height: 32),
+
+          // ── Supabase 설정 섹션 ──────────────────────────
+          _SupabaseSettingTile(),
+
           const SizedBox(height: 40),
         ],
+        ),
       ),
     );
   }
@@ -1096,24 +1101,25 @@ class _StudyModeSettingTile extends StatelessWidget {
           subtitle: const Text('폰을 들었을 때 대기 시간 (기본: 30초)'),
           trailing: const Text('30초'),
         ),
-        ListTile(
-          title: const Text('오버레이 권한'),
-          subtitle: const Text('잠금화면에서 공부 상태 표시'),
-          trailing: ElevatedButton(
-            onPressed: () async {
-              final granted = await OverlayService.checkPermission();
-              if (granted) {
-                // ignore: use_build_context_synchronously
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('오버레이 권한이 허용되어 있습니다')),
-                );
-              } else {
-                await OverlayService.requestPermission();
-              }
-            },
-            child: const Text('권한 확인'),
-          ),
-        ),
+      ],
+    );
+  }
+}
+
+// ── Supabase 설정 ─────────────────────────────────────────
+class _SupabaseSettingTile extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ExpansionTile(
+      leading: const Icon(Icons.cloud_outlined),
+      title: Text('Supabase',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(fontWeight: FontWeight.bold)),
+      subtitle: const Text('데이터 동기화',
+          style: TextStyle(fontSize: 12)),
+      children: [
         ListTile(
           title: const Text('데이터 Push'),
           subtitle: const Text('로컬 데이터를 Supabase로 강제 업로드'),

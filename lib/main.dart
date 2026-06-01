@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'database/database.dart';
@@ -13,6 +15,16 @@ late AppDatabase database;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ko');
+
+  // 알림 권한 요청 (Android 13+)
+  final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+  await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.requestNotificationsPermission();
+
+  // 배터리 사용량 제한 해제 요청
+  await Permission.ignoreBatteryOptimizations.request();
   await Supabase.initialize(
     url: 'https://wowjdjvjhpnbirptpffb.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indvd2pkanZqaHBuYmlycHRwZmZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwMTM3NDEsImV4cCI6MjA5MTU4OTc0MX0.FMbj1kB9skHM7tMtMlpdoWHvAcI-AFEaTfiZHFwGo9Q',
