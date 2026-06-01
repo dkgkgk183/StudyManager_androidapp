@@ -26,6 +26,8 @@ dependencies:
   supabase_flutter: ^2.12.2
   flutter_markdown: ^0.7.7
   sensors_plus: ^6.0.0
+  flutter_overlay_window: ^0.5.0
+  flutter_local_notifications: ^19.2.1
 
 dev_dependencies:
   flutter_test:

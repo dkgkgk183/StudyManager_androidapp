@@ -6,6 +6,7 @@ import 'database/database.dart';
 import 'viewmodels/ui_state.dart';
 import 'views/main_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'services/study_service.dart';
 
 late AppDatabase database;
 

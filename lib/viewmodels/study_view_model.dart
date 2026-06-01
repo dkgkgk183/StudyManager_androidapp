@@ -19,10 +19,13 @@ Future<void> _safeSync(
     Future<void> Function(SupabaseSyncService svc) action,
     AppDatabase db,
     ) async {
+  debugPrint('[_safeSync] $label 시작');
   try {
     await action(SupabaseSyncService(db));
-  } catch (e) {
-    debugPrint('[$label] Supabase 동기화 실패: $e');
+    debugPrint('[_safeSync] $label 성공');
+  } catch (e, st) {
+    debugPrint('[_safeSync] $label 실패: $e');
+    debugPrint('[_safeSync] $label stack: $st');
   }
 }
 
@@ -338,6 +341,15 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
 
   Future<void> toggleItem(String itemId, bool isChecked) async {
     await database.toggleChecklistItem(itemId, isChecked);
+    // Supabase 동기화
+    final dateStr =
+        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final items = await database.getChecklistItemsByDate(dateStr);
+    final item = items.where((i) => i.id == itemId).firstOrNull;
+    if (item != null) {
+      await _safeSync('toggleChecklistItem',
+          (svc) => svc.syncChecklistItem(item), database);
+    }
     ref.invalidateSelf();
   }
 
@@ -392,6 +404,38 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
       ), database);
       sortOrder++;
     }
+    ref.invalidateSelf();
+  }
+
+  /// 과목 그룹 내에서 순서 변경
+  Future<void> reorderInSubject(
+      String subjectId, int oldIndex, int newIndex) async {
+    final dateStr =
+        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final allItems = await database.getChecklistItemsByDate(dateStr);
+
+    // 해당 과목의 항목만 추출 (sortOrder 순)
+    final groupItems =
+        allItems.where((i) => i.subjectId == subjectId).toList()
+          ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
+    if (oldIndex < 0 || oldIndex >= groupItems.length) return;
+    if (newIndex < 0 || newIndex >= groupItems.length) return;
+
+    // 이동
+    final item = groupItems.removeAt(oldIndex);
+    groupItems.insert(newIndex, item);
+
+    // sortOrder 업데이트 + Supabase 동기화
+    for (int i = 0; i < groupItems.length; i++) {
+      if (groupItems[i].sortOrder != i) {
+        final updated = groupItems[i].copyWith(sortOrder: i);
+        await database.updateChecklistItem(updated);
+        await _safeSync('reorderChecklistItem',
+            (svc) => svc.syncChecklistItem(updated), database);
+      }
+    }
+
     ref.invalidateSelf();
   }
 }

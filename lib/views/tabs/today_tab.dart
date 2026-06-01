@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -5,7 +6,8 @@ import '../../viewmodels/ui_state.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../database/database.dart';
 import '../../main.dart' show database;
-import '../study_mode_screen.dart';
+import 'package:drift/drift.dart' show Value;
+import '../../services/study_service.dart';
 
 // ── 월별 체크리스트 날짜 Provider ──────────────────────────
 final checklistDatesInMonthProvider =
@@ -20,12 +22,28 @@ class TodayTab extends ConsumerStatefulWidget {
   ConsumerState<TodayTab> createState() => _TodayTabState();
 }
 
-class _TodayTabState extends ConsumerState<TodayTab> {
+class _TodayTabState extends ConsumerState<TodayTab>
+    with TickerProviderStateMixin {
   late DateTime _weekStart;
+
+  // ── 공부 모드 상태 ──────────────────────────────────────
+  bool _isStudyActive = false;
+  int _studySeconds = 0;
+  Timer? _studyTimer;
+  String? _sessionId;
+  String? _selectedSubjectId;
+  String _studySubjectName = '';
+
+  // ── 깜빡임 애니메이션 ─────────────────────────────────
+  late AnimationController _blinkController;
 
   @override
   void initState() {
     super.initState();
+    _blinkController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
     final now = DateTime.now();
     final effectiveDate = now.hour < 6
         ? DateTime(now.year, now.month, now.day - 1)
@@ -34,6 +52,121 @@ class _TodayTabState extends ConsumerState<TodayTab> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(selectedDateProvider.notifier).setDate(effectiveDate);
     });
+    _closeOrphanedSessions();
+  }
+
+  @override
+  void dispose() {
+    _studyTimer?.cancel();
+    _blinkController.dispose();
+    super.dispose();
+  }
+
+  /// 이전 실행에서 종료되지 않은 세션 정리 (비정상 종료 복구)
+  Future<void> _closeOrphanedSessions() async {
+    try {
+      final sessions = await database.getAllSessions();
+      bool hasOrphan = false;
+
+      final endTimeMillis = await StudyService.getEndTimeMillis();
+      final savedSeconds = await StudyService.getElapsedSeconds();
+      final endTime = endTimeMillis != null
+          ? DateTime.fromMillisecondsSinceEpoch(endTimeMillis)
+          : DateTime.now();
+
+      for (final s in sessions) {
+        if (s.endTime == null) {
+          hasOrphan = true;
+          final elapsed = savedSeconds ?? endTime.difference(s.startTime).inSeconds;
+          final updated = s.copyWith(
+            endTime: Value(endTime),
+            durationSeconds: elapsed,
+          );
+          await database.updateSession(updated);
+        }
+      }
+
+      await StudyService.clearEndTime();
+
+      if (hasOrphan && mounted) {
+        final selectedDate = ref.read(selectedDateProvider);
+        ref.invalidate(studySessionViewModelProvider(selectedDate));
+        await ref.read(studySessionViewModelProvider(selectedDate).future);
+        if (mounted) setState(() {});
+      }
+    } catch (_) {}
+  }
+
+  // ── 공부 모드 메서드 ────────────────────────────────────
+  Future<void> _startStudy() async {
+    if (_selectedSubjectId == null) return;
+
+    final selectedDate = ref.read(selectedDateProvider);
+    final checklistAsync = ref.read(todayChecklistViewModelProvider(selectedDate));
+    final items = checklistAsync.valueOrNull;
+    if (items == null || items.isEmpty) return;
+
+    final subjectItem = items.firstWhere(
+        (e) => (e['subject'] as Subject).id == _selectedSubjectId);
+    final subject = subjectItem['subject'] as Subject;
+
+    final sessionId = await ref
+        .read(studySessionViewModelProvider(selectedDate).notifier)
+        .startSession(subjectId: subject.id);
+
+    setState(() {
+      _isStudyActive = true;
+      _studySeconds = 0;
+      _sessionId = sessionId;
+      _studySubjectName = subject.name;
+    });
+
+    // 포그라운드 서비스 시작
+    await StudyService.startService(subject.name);
+
+    _studyTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() => _studySeconds++);
+        StudyService.updateTime(_studySeconds);
+      }
+    });
+  }
+
+  Future<void> _endStudy() async {
+    _studyTimer?.cancel();
+    await StudyService.stopService();
+
+    final sessionId = _sessionId;
+    final studySeconds = _studySeconds;
+
+    if (mounted) {
+      setState(() {
+        _isStudyActive = false;
+        _sessionId = null;
+        _selectedSubjectId = null;
+        _studySubjectName = '';
+      });
+    }
+
+    final selectedDate = ref.read(selectedDateProvider);
+
+    if (sessionId != null) {
+      await ref
+          .read(studySessionViewModelProvider(selectedDate).notifier)
+          .endSession(sessionId, studySeconds);
+    }
+
+    ref.invalidate(studySessionViewModelProvider(selectedDate));
+  }
+
+  String _formatTime(int totalSeconds) {
+    final h = totalSeconds ~/ 3600;
+    final m = (totalSeconds % 3600) ~/ 60;
+    final s = totalSeconds % 60;
+    if (h > 0) {
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   DateTime _getMonday(DateTime date) {
@@ -53,7 +186,10 @@ class _TodayTabState extends ConsumerState<TodayTab> {
   void _selectDate(DateTime date) {
     ref.read(selectedDateProvider.notifier).setDate(date);
     final monday = _getMonday(date);
-    if (monday != _weekStart) setState(() => _weekStart = monday);
+    setState(() {
+      _weekStart = monday;
+      _selectedSubjectId = null;
+    });
   }
 
   Future<void> _showMonthCalendar(
@@ -334,6 +470,56 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                   ),
                 ),
                 const SizedBox(height: 8),
+                // ── 공부 상태 배너 ──────────────────────────
+                if (_isStudyActive)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.green.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(Icons.school,
+                            size: 36, color: Colors.green),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            FadeTransition(
+                              opacity: _blinkController,
+                              child: Container(
+                                width: 10,
+                                height: 10,
+                                decoration: const BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              '열공 중!',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '공부 시간: ${_formatTime(_studySeconds)}',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ],
+                    ),
+                  ),
                 checklistAsync.when(
                   data: (items) {
                     if (items.isEmpty) {
@@ -354,49 +540,108 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                         final subject = subjectMap[entry.key]!;
                         final color = _colorFromHex(subject.colorHex);
                         final groupItems = entry.value;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // 과목 헤더
-                              Row(
+                        final isSelected =
+                            _selectedSubjectId == subject.id;
+                        return GestureDetector(
+                          onTap: _isStudyActive
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _selectedSubjectId =
+                                        isSelected ? null : subject.id;
+                                  });
+                                },
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected
+                                    ? color
+                                    : Colors.grey.shade300,
+                                width: isSelected ? 2 : 1,
+                              ),
+                              color: isSelected
+                                  ? color.withOpacity(0.05)
+                                  : Colors.transparent,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  CircleAvatar(
-                                    backgroundColor: color,
-                                    radius: 8,
+                                  // 과목 헤더
+                                  Row(
+                                    children: [
+                                      CircleAvatar(
+                                        backgroundColor: color,
+                                        radius: 8,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        subject.name,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: color,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '${groupItems.length}개',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      if (!_isStudyActive)
+                                        Icon(
+                                          isSelected
+                                              ? Icons.radio_button_checked
+                                              : Icons.radio_button_unchecked,
+                                          color: isSelected
+                                              ? color
+                                              : Colors.grey.shade400,
+                                          size: 20,
+                                        ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    subject.name,
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: color,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '${groupItems.length}개',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade500,
-                                    ),
+                                  const SizedBox(height: 6),
+                                  // 체크리스트 항목들 (드래그 정렬)
+                                  ReorderableListView.builder(
+                                    shrinkWrap: true,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    buildDefaultDragHandles: false,
+                                    itemCount: groupItems.length,
+                                    onReorder: (oldIndex, newIndex) {
+                                      if (newIndex > oldIndex) newIndex--;
+                                      ref
+                                          .read(todayChecklistViewModelProvider(selectedDate)
+                                              .notifier)
+                                          .reorderInSubject(subject.id, oldIndex, newIndex);
+                                    },
+                                    proxyDecorator: (child, index, animation) =>
+                                        Material(
+                                          elevation: 4,
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: child,
+                                        ),
+                                    itemBuilder: (context, index) {
+                                      final checklistItem =
+                                          groupItems[index]['item'] as ChecklistItem;
+                                      return _ChecklistItemTile(
+                                        key: ValueKey(checklistItem.id),
+                                        item: checklistItem,
+                                        subject: subject,
+                                        date: selectedDate,
+                                        index: index,
+                                      );
+                                    },
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 6),
-                              // 체크리스트 항목들
-                              ...groupItems.map((item) {
-                                final checklistItem =
-                                    item['item'] as ChecklistItem;
-                                return _ChecklistItemTile(
-                                  item: checklistItem,
-                                  subject: subject,
-                                  date: selectedDate,
-                                );
-                              }),
-                            ],
+                            ),
                           ),
                         );
                       }).toList(),
@@ -406,48 +651,37 @@ class _TodayTabState extends ConsumerState<TodayTab> {
                   const Center(child: CircularProgressIndicator()),
                   error: (e, s) => Text('오류: $e'),
                 ),
-                // ── 공부 시작 버튼 ──────────────────────
+                // ── 공부 시작/종료 버튼 ─────────────────
                 checklistAsync.when(
                   data: (items) {
-                    if (items.isEmpty) return const SizedBox.shrink();
+                    if (items.isEmpty && !_isStudyActive) {
+                      return const SizedBox.shrink();
+                    }
+                    final hasRecords =
+                        sessionsAsync.valueOrNull?.isNotEmpty == true;
+                    if (_isStudyActive) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: ElevatedButton.icon(
+                          onPressed: _endStudy,
+                          icon: const Icon(Icons.stop),
+                          label: const Text('공부 종료'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(double.infinity, 48),
+                          ),
+                        ),
+                      );
+                    }
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: ElevatedButton.icon(
-                        onPressed: () {
-                          final allItems = items
-                              .map((e) => e['item'] as ChecklistItem)
-                              .toList();
-                          final unchecked =
-                              allItems.where((i) => !i.isChecked).toList();
-                          if (unchecked.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('모든 항목이 완료되었어요!')),
-                            );
-                            return;
-                          }
-                          final first = unchecked.first;
-                          final subjectItem = items.firstWhere(
-                              (e) => (e['item'] as ChecklistItem).id == first.id);
-                          final subject =
-                              subjectItem['subject'] as Subject;
-
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => StudyModeScreen(
-                                sessionId:
-                                    '${DateTime.now().millisecondsSinceEpoch}_${first.id}',
-                                subjectId: subject.id,
-                                subjectName: subject.name,
-                                subjectColorHex: subject.colorHex,
-                                checklistItems: allItems,
-                              ),
-                            ),
-                          );
-                        },
+                        onPressed: _selectedSubjectId != null
+                            ? _startStudy
+                            : null,
                         icon: const Icon(Icons.school),
-                        label: const Text('공부 시작'),
+                        label: Text(hasRecords ? '공부 재개' : '공부 시작'),
                         style: ElevatedButton.styleFrom(
                           minimumSize: const Size(double.infinity, 48),
                         ),
@@ -1022,8 +1256,7 @@ class _SessionCardState extends ConsumerState<_SessionCard> {
           ),
           title: Text(widget.subject.name,
               style: const TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Text(
-              '$startStr 시작 · $timeStr · 폰 꺼냄 ${widget.session.trayOpenCount}회'),
+          subtitle: Text('$startStr 시작 · $timeStr'),
           trailing: _showDelete
               ? IconButton(
             icon: const Icon(Icons.delete, color: Colors.red),
@@ -1050,8 +1283,9 @@ class _ChecklistItemTile extends ConsumerStatefulWidget {
   final ChecklistItem item;
   final Subject subject;
   final DateTime date;
+  final int index;
   const _ChecklistItemTile(
-      {required this.item, required this.subject, required this.date});
+      {super.key, required this.item, required this.subject, required this.date, required this.index});
 
   @override
   ConsumerState<_ChecklistItemTile> createState() =>
@@ -1071,6 +1305,14 @@ class _ChecklistItemTileState extends ConsumerState<_ChecklistItemTile> {
         padding: const EdgeInsets.only(left: 16, top: 2, bottom: 2),
         child: Row(
           children: [
+            ReorderableDragStartListener(
+              index: widget.index,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(Icons.drag_handle,
+                    size: 20, color: Colors.grey.shade400),
+              ),
+            ),
             Checkbox(
               value: widget.item.isChecked,
               activeColor: color,

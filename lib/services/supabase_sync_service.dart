@@ -117,6 +117,7 @@ class SupabaseSyncService {
       'is_checked': item.isChecked,
       'sort_order': item.sortOrder,
       'created_at': item.createdAt.toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
     });
   }
 

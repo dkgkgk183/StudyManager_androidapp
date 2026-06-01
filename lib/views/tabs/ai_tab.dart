@@ -1438,26 +1438,48 @@ class _ChatBubbleState extends State<_ChatBubble> {
                             child: CircularProgressIndicator(strokeWidth: 2, color: textColor),
                           )
                         else if (isAi)
-                          MarkdownBody(
-                            data: widget.message.text,
-                            styleSheet: MarkdownStyleSheet(
-                              p: TextStyle(color: textColor, height: 1.5),
-                              strong: TextStyle(color: textColor, height: 1.5, fontWeight: FontWeight.bold),
-                              em: TextStyle(color: textColor, height: 1.5, fontStyle: FontStyle.italic),
-                              code: TextStyle(
-                                color: textColor,
-                                backgroundColor: bubbleColor.withValues(alpha: 0.5),
-                                fontSize: 13,
+                          Theme(
+                            data: Theme.of(context).copyWith(
+                              checkboxTheme: CheckboxThemeData(
+                                side: WidgetStateBorderSide.resolveWith(
+                                  (_) => BorderSide(
+                                    color: Theme.of(context).brightness == Brightness.dark
+                                        ? Colors.white70
+                                        : textColor.withValues(alpha: 0.5),
+                                  ),
+                                ),
+                                fillColor: WidgetStateProperty.resolveWith((states) {
+                                  if (states.contains(WidgetState.selected)) {
+                                    return Theme.of(context).colorScheme.primary;
+                                  }
+                                  return Theme.of(context).brightness == Brightness.dark
+                                      ? Colors.transparent
+                                      : null;
+                                }),
+                                checkColor: WidgetStateProperty.all(Colors.white),
                               ),
-                              codeblockDecoration: BoxDecoration(
-                                color: bubbleColor.withValues(alpha: 0.5),
-                                borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: MarkdownBody(
+                              data: widget.message.text,
+                              styleSheet: MarkdownStyleSheet(
+                                p: TextStyle(color: textColor, height: 1.5),
+                                strong: TextStyle(color: textColor, height: 1.5, fontWeight: FontWeight.bold),
+                                em: TextStyle(color: textColor, height: 1.5, fontStyle: FontStyle.italic),
+                                code: TextStyle(
+                                  color: textColor,
+                                  backgroundColor: bubbleColor.withValues(alpha: 0.5),
+                                  fontSize: 13,
+                                ),
+                                codeblockDecoration: BoxDecoration(
+                                  color: bubbleColor.withValues(alpha: 0.5),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                blockquote: TextStyle(color: textColor.withValues(alpha: 0.7)),
+                                h1: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 20),
+                                h2: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 18),
+                                h3: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16),
+                                listBullet: TextStyle(color: textColor),
                               ),
-                              blockquote: TextStyle(color: textColor.withValues(alpha: 0.7)),
-                              h1: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 20),
-                              h2: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 18),
-                              h3: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16),
-                              listBullet: TextStyle(color: textColor),
                             ),
                           )
                         else

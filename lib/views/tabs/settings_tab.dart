@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../viewmodels/study_view_model.dart';
 import '../../services/api_key_service.dart';
 import '../../services/supabase_sync_service.dart';
+import '../../services/overlay_service.dart';
 import '../../viewmodels/sync_provider.dart';
 import '../../database/database.dart';
 import '../../main.dart';
@@ -555,12 +556,22 @@ class _OpenRouterApiKeyTileState
                   return;
                 }
                 final model = modelCtrl.text.trim();
-                await ref
-                    .read(openRouterApiKeyProvider.notifier)
-                    .save(key);
-                await ref
-                    .read(openRouterModelProvider.notifier)
-                    .save(model.isNotEmpty ? model : defaultOpenRouterModel);
+                try {
+                  await ref
+                      .read(openRouterApiKeyProvider.notifier)
+                      .save(key);
+                  await ref
+                      .read(openRouterModelProvider.notifier)
+                      .save(model.isNotEmpty ? model : defaultOpenRouterModel);
+                } catch (e) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text('저장 실패: $e'),
+                        backgroundColor: Colors.red),
+                  );
+                  return;
+                }
                 if (!context.mounted) return;
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1090,9 +1101,64 @@ class _StudyModeSettingTile extends StatelessWidget {
           subtitle: const Text('잠금화면에서 공부 상태 표시'),
           trailing: ElevatedButton(
             onPressed: () async {
-              // TODO: 오버레이 권한 확인 및 요청
+              final granted = await OverlayService.checkPermission();
+              if (granted) {
+                // ignore: use_build_context_synchronously
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('오버레이 권한이 허용되어 있습니다')),
+                );
+              } else {
+                await OverlayService.requestPermission();
+              }
             },
             child: const Text('권한 확인'),
+          ),
+        ),
+        ListTile(
+          title: const Text('데이터 Push'),
+          subtitle: const Text('로컬 데이터를 Supabase로 강제 업로드'),
+          trailing: ElevatedButton(
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('업로드 중...')),
+              );
+              final result = await SupabaseSyncService(database).pushAll();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                      content: Text(result.success
+                          ? '${result.count}개 항목 업로드 완료'
+                          : '업로드 실패: ${result.error}')),
+                );
+              }
+            },
+            child: const Text('Push'),
+          ),
+        ),
+        ListTile(
+          title: const Text('데이터 Pull'),
+          subtitle: const Text('Supabase에서 로컬로 데이터 다운로드'),
+          trailing: ElevatedButton(
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('다운로드 중...')),
+              );
+              final result = await SupabaseSyncService(database).pullAll();
+              if (context.mounted) {
+                if (result.success) {
+                  final container = ProviderScope.containerOf(context, listen: false);
+                  container.invalidate(categoryViewModelProvider);
+                  container.invalidate(subjectViewModelProvider);
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                      content: Text(result.success
+                          ? '${result.count}개 항목 다운로드 완료'
+                          : '다운로드 실패: ${result.error}')),
+                );
+              }
+            },
+            child: const Text('Pull'),
           ),
         ),
       ],
