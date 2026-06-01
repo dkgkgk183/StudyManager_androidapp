@@ -39,11 +39,9 @@ class _TodayTabState extends ConsumerState<TodayTab>
   // ── 일시정지 모드 상태 ─────────────────────────────────
   int _pauseSeconds = 30;
   Timer? _pauseTimer;
-  Map<String, bool> _checklistSnapshot = {};
 
   // ── 센서 ───────────────────────────────────────────────
   Timer? _sensorPollTimer;
-  bool _waitingForFlip = false; // 체크 후 다시 뒤집힐 때까지 일시정지 감지 중지
 
   // ── 깜빡임 애니메이션 ─────────────────────────────────
   late AnimationController _blinkController;
@@ -175,23 +173,22 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
     _sensorPollTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
       final z = await StudyService.getAccelZ();
-      debugPrint('[Sensor] mode=$_studyMode z=${z.toStringAsFixed(2)} waiting=$_waitingForFlip');
-
-      if (_waitingForFlip) {
-        // 체크 후 대기 중: 다시 뒤집힐 때까지 일시정지 감지 안 함
-        if (z < -9.5) {
-          debugPrint('[Sensor] → 다시 뒤집힘! waiting 해제');
-          _waitingForFlip = false;
-        }
-        return;
-      }
+      debugPrint('[Sensor] mode=$_studyMode z=${z.toStringAsFixed(2)}');
 
       if (_studyMode == StudyMode.waiting && z < -9.5) {
         debugPrint('[Sensor] → 뒤집힘 감지! _startActiveStudy()');
         _startActiveStudy();
+      } else if (_studyMode == StudyMode.paused && z < -9.5) {
+        debugPrint('[Sensor] → 다시 뒤집힘! 공부 모드 복귀');
+        _resumeActiveStudy();
       } else if (_studyMode == StudyMode.active && z > 0) {
-        debugPrint('[Sensor] → 들어올림 감지, _onPhoneLifted()');
-        _onPhoneLifted();
+        final locked = await StudyService.isKeyguardLocked();
+        if (locked) {
+          debugPrint('[Sensor] → 들어올림 but 잠금화면 → 무시');
+        } else {
+          debugPrint('[Sensor] → 들어올림 감지, _onPhoneLifted()');
+          _onPhoneLifted();
+        }
       }
     });
   }
@@ -222,8 +219,6 @@ class _TodayTabState extends ConsumerState<TodayTab>
       _studyMode = StudyMode.paused;
       _pauseSeconds = 30;
     });
-    // 체크리스트 스냅샷 저장
-    _snapshotChecklistState();
     _pauseTimer?.cancel();
     _pauseTimer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted) { t.cancel(); return; }
@@ -235,44 +230,16 @@ class _TodayTabState extends ConsumerState<TodayTab>
     });
   }
 
-  void _snapshotChecklistState() {
-    final selectedDate = ref.read(selectedDateProvider);
-    final checklistAsync = ref.read(todayChecklistViewModelProvider(selectedDate));
-    final items = checklistAsync.valueOrNull;
-    if (items == null) return;
-    _checklistSnapshot = {
-      for (final item in items) (item['item'] as ChecklistItem).id: (item['item'] as ChecklistItem).isChecked,
-    };
-  }
-
-  void _onChecklistChanged(String itemId, bool newValue) {
-    if (_studyMode != StudyMode.paused) return;
-    if (_checklistSnapshot.containsKey(itemId) &&
-        _checklistSnapshot[itemId] != newValue) {
-      // 체크 상태 변경됨 → 일시정지 해제, 다시 뒤집힐 때까지 대기
-      _pauseTimer?.cancel();
-      _waitingForFlip = true;
-      setState(() => _studyMode = StudyMode.active);
-    }
+  void _resumeActiveStudy() {
+    debugPrint('[Study] _resumeActiveStudy()');
+    _pauseTimer?.cancel();
+    setState(() => _studyMode = StudyMode.active);
+    StudyService.updateTime(_studySeconds);
   }
 
   Future<void> _applyPausePenalty() async {
-    final selectedDate = ref.read(selectedDateProvider);
-    final checklistAsync = ref.read(todayChecklistViewModelProvider(selectedDate));
-    final items = checklistAsync.valueOrNull;
-    if (items == null) return;
-
-    bool changed = false;
-    for (final item in items) {
-      final ci = item['item'] as ChecklistItem;
-      if (_checklistSnapshot.containsKey(ci.id) &&
-          _checklistSnapshot[ci.id] != ci.isChecked) {
-        changed = true;
-        break;
-      }
-    }
-
-    if (!changed && _sessionId != null) {
+    if (_sessionId != null) {
+      final selectedDate = ref.read(selectedDateProvider);
       await ref
           .read(studySessionViewModelProvider(selectedDate).notifier)
           .recordPenalty(_sessionId!);
@@ -298,7 +265,6 @@ class _TodayTabState extends ConsumerState<TodayTab>
         _sessionId = null;
         _selectedSubjectId = null;
         _studySubjectName = '';
-        _waitingForFlip = false;
       });
     }
 
@@ -730,7 +696,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
                         ),
                         const SizedBox(height: 4),
                         const Text(
-                          '체크리스트를 완료하세요!',
+                          '체크리스트를 조정하거나 스마트폰을 다시 뒤집으세요!',
                           style: TextStyle(color: Colors.red),
                         ),
                       ],
@@ -846,14 +812,15 @@ class _TodayTabState extends ConsumerState<TodayTab>
                                     itemBuilder: (context, index) {
                                       final checklistItem =
                                           groupItems[index]['item'] as ChecklistItem;
+                                      final isStudySubject = _selectedSubjectId == null || _selectedSubjectId == subject.id;
                                       return _ChecklistItemTile(
                                         key: ValueKey(checklistItem.id),
                                         item: checklistItem,
                                         subject: subject,
                                         date: selectedDate,
                                         index: index,
-                                        enabled: _studyMode == StudyMode.active || _studyMode == StudyMode.paused,
-                                        onChanged: () => _onChecklistChanged(checklistItem.id, !checklistItem.isChecked),
+                                        enabled: isStudySubject && (_studyMode == StudyMode.active || _studyMode == StudyMode.paused),
+                                        onChanged: () {},
                                       );
                                     },
                                   ),

@@ -62,6 +62,10 @@ class MainActivity : FlutterActivity() {
                         )
                         result.success(prefs.getFloat(StudyForegroundService.KEY_ACCEL_Z, 0f).toDouble())
                     }
+                    "isKeyguardLocked" -> {
+                        val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+                        result.success(km.isKeyguardLocked)
+                    }
                     else -> result.notImplemented()
                 }
             }
