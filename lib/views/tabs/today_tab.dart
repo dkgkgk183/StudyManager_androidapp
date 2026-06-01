@@ -25,7 +25,7 @@ class TodayTab extends ConsumerStatefulWidget {
 }
 
 class _TodayTabState extends ConsumerState<TodayTab>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late DateTime _weekStart;
 
   // ── 공부 모드 상태 ──────────────────────────────────────
@@ -43,6 +43,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
   // ── 센서 ───────────────────────────────────────────────
   Timer? _sensorPollTimer;
+  bool _waitingForFlip = false; // 체크 후 다시 뒤집힐 때까지 일시정지 감지 중지
 
   // ── 깜빡임 애니메이션 ─────────────────────────────────
   late AnimationController _blinkController;
@@ -50,6 +51,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _blinkController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -67,6 +69,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _studyTimer?.cancel();
     _pauseTimer?.cancel();
     _sensorPollTimer?.cancel();
@@ -75,6 +78,29 @@ class _TodayTabState extends ConsumerState<TodayTab>
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (state != AppLifecycleState.paused) return;
+    if (_studyMode != StudyMode.active && _studyMode != StudyMode.paused) return;
+
+    debugPrint('[Lifecycle] paused → 10초 대기 후 z 확인');
+    Future.delayed(const Duration(seconds: 10), () async {
+      if (_studyMode != StudyMode.active && _studyMode != StudyMode.paused) return;
+      final z = await StudyService.getAccelZ();
+      if (z < -9.5) {
+        debugPrint('[Lifecycle] 10초 후 뒤집힘 → 공부 계속');
+      } else {
+        debugPrint('[Lifecycle] 10초 후 안 뒤집힘 → 종료 + 패널티');
+        if (_sessionId != null) {
+          final selectedDate = ref.read(selectedDateProvider);
+          await ref
+              .read(studySessionViewModelProvider(selectedDate).notifier)
+              .recordPenalty(_sessionId!);
+        }
+        _endStudy();
+      }
+    });
+  }
 
   /// 이전 실행에서 종료되지 않은 세션 정리 (비정상 종료 복구)
   Future<void> _closeOrphanedSessions() async {
@@ -149,7 +175,16 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
     _sensorPollTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
       final z = await StudyService.getAccelZ();
-      debugPrint('[Sensor] mode=$_studyMode z=${z.toStringAsFixed(2)}');
+      debugPrint('[Sensor] mode=$_studyMode z=${z.toStringAsFixed(2)} waiting=$_waitingForFlip');
+
+      if (_waitingForFlip) {
+        // 체크 후 대기 중: 다시 뒤집힐 때까지 일시정지 감지 안 함
+        if (z < -9.5) {
+          debugPrint('[Sensor] → 다시 뒤집힘! waiting 해제');
+          _waitingForFlip = false;
+        }
+        return;
+      }
 
       if (_studyMode == StudyMode.waiting && z < -9.5) {
         debugPrint('[Sensor] → 뒤집힘 감지! _startActiveStudy()');
@@ -212,11 +247,11 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
   void _onChecklistChanged(String itemId, bool newValue) {
     if (_studyMode != StudyMode.paused) return;
-    // 스냅샷과 새 값 비교
     if (_checklistSnapshot.containsKey(itemId) &&
         _checklistSnapshot[itemId] != newValue) {
-      // 체크 상태가 실제로 변경됨 → 일시정지 해제
+      // 체크 상태 변경됨 → 일시정지 해제, 다시 뒤집힐 때까지 대기
       _pauseTimer?.cancel();
+      _waitingForFlip = true;
       setState(() => _studyMode = StudyMode.active);
     }
   }
@@ -240,7 +275,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
     if (!changed && _sessionId != null) {
       await ref
           .read(studySessionViewModelProvider(selectedDate).notifier)
-          .incrementTrayOpen(_sessionId!);
+          .recordPenalty(_sessionId!);
     }
 
     if (mounted) setState(() => _studyMode = StudyMode.active);
@@ -263,6 +298,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
         _sessionId = null;
         _selectedSubjectId = null;
         _studySubjectName = '';
+        _waitingForFlip = false;
       });
     }
 
@@ -1438,7 +1474,10 @@ class _SessionCardState extends ConsumerState<_SessionCard> {
           ),
           title: Text(widget.subject.name,
               style: const TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Text('$startStr 시작 · $timeStr'),
+          subtitle: Text(
+            '$startStr 시작 · $timeStr'
+            '${widget.session.penaltyCount > 0 ? '  · 패널티 ${widget.session.penaltyCount}회' : ''}',
+          ),
           trailing: _showDelete
               ? IconButton(
             icon: const Icon(Icons.delete, color: Colors.red),
@@ -1485,17 +1524,9 @@ class _ChecklistItemTileState extends ConsumerState<_ChecklistItemTile> {
     return GestureDetector(
       onLongPress: () => setState(() => _showDelete = !_showDelete),
       child: Padding(
-        padding: const EdgeInsets.only(left: 16, top: 2, bottom: 2),
+        padding: const EdgeInsets.only(left: 8, right: 4, top: 2, bottom: 2),
         child: Row(
           children: [
-            ReorderableDragStartListener(
-              index: widget.index,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Icon(Icons.drag_handle,
-                    size: 20, color: Colors.grey.shade400),
-              ),
-            ),
             Checkbox(
               value: widget.item.isChecked,
               activeColor: color,
@@ -1526,6 +1557,14 @@ class _ChecklistItemTileState extends ConsumerState<_ChecklistItemTile> {
                       .deleteItem(widget.item.id);
                 },
               ),
+            ReorderableDragStartListener(
+              index: widget.index,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(Icons.drag_handle,
+                    size: 20, color: Colors.grey.shade400),
+              ),
+            ),
           ],
         ),
       ),
