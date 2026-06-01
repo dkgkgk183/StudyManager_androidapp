@@ -852,6 +852,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
                                         subject: subject,
                                         date: selectedDate,
                                         index: index,
+                                        enabled: _studyMode == StudyMode.active || _studyMode == StudyMode.paused,
                                         onChanged: () => _onChecklistChanged(checklistItem.id, !checklistItem.isChecked),
                                       );
                                     },
@@ -1505,9 +1506,10 @@ class _ChecklistItemTile extends ConsumerStatefulWidget {
   final Subject subject;
   final DateTime date;
   final int index;
+  final bool enabled;
   final VoidCallback? onChanged;
   const _ChecklistItemTile(
-      {super.key, required this.item, required this.subject, required this.date, required this.index, this.onChanged});
+      {super.key, required this.item, required this.subject, required this.date, required this.index, this.enabled = true, this.onChanged});
 
   @override
   ConsumerState<_ChecklistItemTile> createState() =>
@@ -1530,12 +1532,14 @@ class _ChecklistItemTileState extends ConsumerState<_ChecklistItemTile> {
             Checkbox(
               value: widget.item.isChecked,
               activeColor: color,
-              onChanged: (value) async {
-                await ref
-                    .read(todayChecklistViewModelProvider(widget.date).notifier)
-                    .toggleItem(widget.item.id, value ?? false);
-                widget.onChanged?.call();
-              },
+              onChanged: widget.enabled
+                  ? (value) async {
+                      await ref
+                          .read(todayChecklistViewModelProvider(widget.date).notifier)
+                          .toggleItem(widget.item.id, value ?? false);
+                      widget.onChanged?.call();
+                    }
+                  : null,
             ),
             Expanded(
               child: Text(
