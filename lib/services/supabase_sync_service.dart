@@ -97,10 +97,9 @@ class SupabaseSyncService {
       'user_id': uid,
       'subject_id': session.subjectId,
       'plan_id': session.planId,
-      'start_time': session.startTime.toIso8601String(),
-      'end_time': session.endTime?.toIso8601String(),
+      'start_time': session.startTime.toUtc().toIso8601String(),
+      'end_time': session.endTime?.toUtc().toIso8601String(),
       'duration_seconds': session.durationSeconds,
-      'tray_open_count': session.trayOpenCount,
       'self_score': session.selfScore,
       'penalty_count': session.penaltyCount,
     });
@@ -116,8 +115,8 @@ class SupabaseSyncService {
       'text': item.content,
       'is_checked': item.isChecked,
       'sort_order': item.sortOrder,
-      'created_at': item.createdAt.toIso8601String(),
-      'updated_at': DateTime.now().toIso8601String(),
+      'created_at': item.createdAt.toUtc().toIso8601String(),
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
     });
   }
 
@@ -219,7 +218,7 @@ class SupabaseSyncService {
           content: row['text'] as String,
           isChecked: drift.Value(row['is_checked'] as bool? ?? false),
           sortOrder: drift.Value(row['sort_order'] as int? ?? 0),
-          createdAt: DateTime.parse(row['created_at'] as String),
+          createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
         ));
         restored++;
       }
@@ -236,14 +235,12 @@ class SupabaseSyncService {
           id: row['id'] as String,
           subjectId: row['subject_id'] as String,
           planId: drift.Value(row['plan_id'] as String?),
-          startTime: DateTime.parse(row['start_time'] as String),
+          startTime: DateTime.parse(row['start_time'] as String).toLocal(),
           endTime: drift.Value(row['end_time'] != null
-              ? DateTime.parse(row['end_time'] as String)
+              ? DateTime.parse(row['end_time'] as String).toLocal()
               : null),
           durationSeconds:
           drift.Value(row['duration_seconds'] as int? ?? 0),
-          trayOpenCount:
-          drift.Value(row['tray_open_count'] as int? ?? 0),
           selfScore: drift.Value(row['self_score'] as int? ?? 0),
           penaltyCount: drift.Value(row['penalty_count'] as int? ?? 0),
         ));

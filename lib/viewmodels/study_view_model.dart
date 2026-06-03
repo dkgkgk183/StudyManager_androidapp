@@ -231,7 +231,6 @@ class StudySessionViewModel extends _$StudySessionViewModel {
       startTime: startTime,
       endTime: null,
       durationSeconds: 0,
-      trayOpenCount: 0,
       selfScore: 0,
       penaltyCount: 0,
     )), database);
@@ -252,17 +251,6 @@ class StudySessionViewModel extends _$StudySessionViewModel {
     await _safeSync(
         'endSession', (svc) => svc.syncSession(updated), database);
 
-    ref.invalidateSelf();
-  }
-
-  Future<void> incrementTrayOpen(String sessionId) async {
-    final sessions = await database.getAllSessions();
-    final session = sessions.firstWhere((s) => s.id == sessionId);
-    final updated =
-    session.copyWith(trayOpenCount: session.trayOpenCount + 1);
-    await database.updateSession(updated);
-    await _safeSync(
-        'incrementTrayOpen', (svc) => svc.syncSession(updated), database);
     ref.invalidateSelf();
   }
 
@@ -302,7 +290,7 @@ class StudySessionViewModel extends _$StudySessionViewModel {
 class TodayChecklistViewModel extends _$TodayChecklistViewModel {
   @override
   Future<List<Map<String, dynamic>>> build(DateTime date) async {
-    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final dateStr = formatDateStr(date);
     final results = await database.getChecklistItemsWithSubject(dateStr).get();
     return results.map((row) => {
       'item': row.readTable(database.checklistItems),
@@ -311,7 +299,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
   }
 
   Future<void> addItem(String subjectId, String text) async {
-    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final dateStr = formatDateStr(date);
     final items = await database.getChecklistItemsByDate(dateStr);
     final id = _generateId();
 
@@ -343,7 +331,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
     await database.toggleChecklistItem(itemId, isChecked);
     // Supabase 동기화
     final dateStr =
-        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        formatDateStr(date);
     final items = await database.getChecklistItemsByDate(dateStr);
     final item = items.where((i) => i.id == itemId).firstOrNull;
     if (item != null) {
@@ -361,7 +349,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
   }
 
   Future<void> deleteAll() async {
-    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final dateStr = formatDateStr(date);
     final items = await database.getChecklistItemsByDate(dateStr);
     final ids = items.map((item) => item.id).toList();
 
@@ -373,7 +361,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
 
   /// AI에서 벌크 추가
   Future<void> addItemsFromAI(List<Map<String, dynamic>> items) async {
-    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final dateStr = formatDateStr(date);
     final now = DateTime.now();
     final current = await database.getChecklistItemsByDate(dateStr);
     int sortOrder = current.length;
@@ -411,7 +399,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
   Future<void> reorderInSubject(
       String subjectId, int oldIndex, int newIndex) async {
     final dateStr =
-        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        formatDateStr(date);
     final allItems = await database.getChecklistItemsByDate(dateStr);
 
     // 해당 과목의 항목만 추출 (sortOrder 순)

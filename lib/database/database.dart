@@ -25,6 +25,21 @@ DateTime toStudyDate(DateTime dt) {
   return DateTime(dt.year, dt.month, dt.day);
 }
 
+// ── yyyy-MM-dd 포맷 헬퍼 ────────────────────────────────
+//
+// DateTime → "yyyy-MM-dd" 변환은 여러 곳에서 반복되므로 헬퍼로 통일.
+// 이미 "공부일"로 환산된 DateTime(자정 기준)에는 formatDateStr,
+// "지금" 기준으로 환산할 때는 formatStudyDateStr 를 사용.
+
+/// DateTime을 "yyyy-MM-dd" 문자열로 변환 (boundary 미적용).
+/// 인자는 이미 study day인 자정 DateTime이어야 함.
+String formatDateStr(DateTime date) =>
+    '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+/// DateTime에 6시 경계를 적용한 뒤 "yyyy-MM-dd" 문자열로 변환.
+/// DateTime.now() 같이 "실시간" 값을 넣을 때 사용.
+String formatStudyDateStr(DateTime dt) => formatDateStr(toStudyDate(dt));
+
 // ── 카테고리 테이블 (학교공부, 자격증 등) ──────────────────
 class SubjectCategories extends Table {
   TextColumn get id => text()();
@@ -68,7 +83,6 @@ class StudySessions extends Table {
   DateTimeColumn get startTime => dateTime()();
   DateTimeColumn get endTime => dateTime().nullable()();
   IntColumn get durationSeconds => integer().withDefault(const Constant(0))();
-  IntColumn get trayOpenCount => integer().withDefault(const Constant(0))();
   IntColumn get selfScore => integer().withDefault(const Constant(0))();
   IntColumn get penaltyCount => integer().withDefault(const Constant(0))();
 
@@ -93,7 +107,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -109,6 +123,21 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(checklistItems);
         await m.addColumn(studySessions, studySessions.penaltyCount);
         await customStatement('DROP TABLE IF EXISTS study_plans');
+      }
+      if (from < 4) {
+        // tray_open_count 컬럼이 실제 DB에 존재할 때만 DROP.
+        // v1/v2에서 점프업한 사용자처럼 컬럼이 없는 경우 SQLite가
+        // "no such column" 에러를 내며 마이그레이션이 중단되는 것을 방지.
+        final cols = await customSelect(
+          "PRAGMA table_info(study_sessions)",
+          readsFrom: {studySessions},
+        ).get();
+        final hasTrayOpen = cols.any((r) => r.data['name'] == 'tray_open_count');
+        if (hasTrayOpen) {
+          await customStatement(
+            'ALTER TABLE study_sessions DROP COLUMN tray_open_count',
+          );
+        }
       }
     },
   );

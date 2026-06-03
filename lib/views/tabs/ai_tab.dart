@@ -75,10 +75,9 @@ class _AiTabState extends ConsumerState<AiTab> {
   bool _speechAvailable = false;
   bool _isListening = false;
 
-  DateTime _selectedDate = DateTime.now();
+  DateTime _selectedDate = toStudyDate(DateTime.now());
 
-  String _rangeKey() =>
-      '$_kChecklistPrefix${DateFormat('yyyy-MM-dd').format(_selectedDate)}';
+  String _rangeKey() => '$_kChecklistPrefix${formatDateStr(_selectedDate)}';
 
   final Map<String, List<_ChatMessage>> _checklistMessagesCache = {};
   final Map<String, List<Map<String, dynamic>>> _checklistHistoryCache = {};
@@ -156,8 +155,8 @@ class _AiTabState extends ConsumerState<AiTab> {
     }
   }
 
-  // ── 날짜 스와이프 ─────────────────────────────────────
-  void _swipeDate(int days) async {
+  // ── 날짜 변경 ─────────────────────────────────────────
+  void _changeDate(int days) async {
     setState(() {
       _selectedDate = _selectedDate.add(Duration(days: days));
     });
@@ -1039,30 +1038,37 @@ $categoryCtx
           ? const Center(child: CircularProgressIndicator())
           : Column(
         children: [
-          GestureDetector(
-              onHorizontalDragEnd: (details) {
-                final vx = details.primaryVelocity ?? 0;
-                if (vx < -200) _swipeDate(1);   // 왼쪽 스와이프 → 다음 날
-                if (vx > 200) _swipeDate(-1);    // 오른쪽 스와이프 → 이전 날
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.chevron_left, size: 18,
-                        color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(width: 4),
-                    Text(dateDisplay,
-                        style: TextStyle(fontSize: 13,
-                            color: Theme.of(context).colorScheme.primary)),
-                    const SizedBox(width: 4),
-                    Icon(Icons.chevron_right, size: 18,
-                        color: Theme.of(context).colorScheme.primary),
-                  ],
-                ),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left),
+                    iconSize: 20,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 32),
+                    onPressed: () => _changeDate(-1),
+                    tooltip: '이전 날',
+                  ),
+                  const SizedBox(width: 4),
+                  Text(dateDisplay,
+                      style: TextStyle(fontSize: 13,
+                          color: Theme.of(context).colorScheme.primary)),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right),
+                    iconSize: 20,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 32),
+                    onPressed: () => _changeDate(1),
+                    tooltip: '다음 날',
+                  ),
+                ],
               ),
             ),
+          ),
           if (_isListening)
             Container(
               width: double.infinity,

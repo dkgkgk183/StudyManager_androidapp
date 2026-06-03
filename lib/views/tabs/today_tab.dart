@@ -30,18 +30,23 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
   // ── 공부 모드 상태 ──────────────────────────────────────
   StudyMode _studyMode = StudyMode.idle;
-  int _studySeconds = 0;
+  final ValueNotifier<int> _studySeconds = ValueNotifier<int>(0);
   Timer? _studyTimer;
   String? _sessionId;
   String? _selectedSubjectId;
   String _studySubjectName = '';
 
   // ── 일시정지 모드 상태 ─────────────────────────────────
-  int _pauseSeconds = 30;
+  final ValueNotifier<int> _pauseSeconds = ValueNotifier<int>(30);
   Timer? _pauseTimer;
 
   // ── 센서 ───────────────────────────────────────────────
   Timer? _sensorPollTimer;
+
+  // ── 라이프사이클 구분 (잠금 vs 앱 전환) ─────────────────
+  // inactive → paused가 수백ms 내 = 잠금화면(화면 끄기)
+  // inactive → hidden → paused = 홈버튼/뒤로가기(앱 전환)
+  DateTime? _inactiveAt;
 
   // ── 깜빡임 애니메이션 ─────────────────────────────────
   late AnimationController _blinkController;
@@ -54,10 +59,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     )..repeat(reverse: true);
-    final now = DateTime.now();
-    final effectiveDate = now.hour < 6
-        ? DateTime(now.year, now.month, now.day - 1)
-        : DateTime(now.year, now.month, now.day);
+    final effectiveDate = toStudyDate(DateTime.now());
     _weekStart = _getMonday(effectiveDate);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(selectedDateProvider.notifier).setDate(effectiveDate);
@@ -71,6 +73,8 @@ class _TodayTabState extends ConsumerState<TodayTab>
     _studyTimer?.cancel();
     _pauseTimer?.cancel();
     _sensorPollTimer?.cancel();
+    _studySeconds.dispose();
+    _pauseSeconds.dispose();
     StudyService.stopSensor();
     _blinkController.dispose();
     super.dispose();
@@ -78,26 +82,41 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
-    if (state != AppLifecycleState.paused) return;
-    if (_studyMode != StudyMode.active && _studyMode != StudyMode.paused) return;
+    if (_studyMode != StudyMode.active && _studyMode != StudyMode.paused) {
+      // 공부 중이 아니면 inactive 시점도 무시
+      if (state == AppLifecycleState.inactive) _inactiveAt = null;
+      return;
+    }
 
-    debugPrint('[Lifecycle] paused → 10초 대기 후 z 확인');
-    Future.delayed(const Duration(seconds: 10), () async {
-      if (_studyMode != StudyMode.active && _studyMode != StudyMode.paused) return;
-      final z = await StudyService.getAccelZ();
-      if (z < -9.5) {
-        debugPrint('[Lifecycle] 10초 후 뒤집힘 → 공부 계속');
-      } else {
-        debugPrint('[Lifecycle] 10초 후 안 뒤집힘 → 종료 + 패널티');
-        if (_sessionId != null) {
-          final selectedDate = ref.read(selectedDateProvider);
-          await ref
-              .read(studySessionViewModelProvider(selectedDate).notifier)
-              .recordPenalty(_sessionId!);
-        }
-        _endStudy();
-      }
-    });
+    if (state == AppLifecycleState.inactive) {
+      _inactiveAt = DateTime.now();
+      debugPrint('[Lifecycle] inactive 진입');
+      return;
+    }
+
+    if (state != AppLifecycleState.paused) return;
+
+    final inactiveAt = _inactiveAt;
+    _inactiveAt = null;
+    final elapsed = inactiveAt == null
+        ? null
+        : DateTime.now().difference(inactiveAt);
+
+    // 잠금화면(화면 끄기): inactive에서 매우 짧은 시간 내 paused 도달
+    // 앱 전환(홈/뒤로가기): inactive 후 더 길게 머무름
+    if (elapsed != null && elapsed < const Duration(milliseconds: 500)) {
+      debugPrint('[Lifecycle] paused (${elapsed.inMilliseconds}ms) → 잠금화면, 유지');
+      return;
+    }
+
+    debugPrint('[Lifecycle] paused (${elapsed?.inMilliseconds}ms) → 앱 전환, 즉시 종료 + 패널티');
+    if (_sessionId != null) {
+      final selectedDate = ref.read(selectedDateProvider);
+      await ref
+          .read(studySessionViewModelProvider(selectedDate).notifier)
+          .recordPenalty(_sessionId!);
+    }
+    await _endStudy();
   }
 
   /// 이전 실행에서 종료되지 않은 세션 정리 (비정상 종료 복구)
@@ -154,7 +173,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
     setState(() {
       _studyMode = StudyMode.waiting;
-      _studySeconds = 0;
+      _studySeconds.value = 0;
       _sessionId = sessionId;
       _studySubjectName = subject.name;
     });
@@ -173,7 +192,6 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
     _sensorPollTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
       final z = await StudyService.getAccelZ();
-      debugPrint('[Sensor] mode=$_studyMode z=${z.toStringAsFixed(2)}');
 
       if (_studyMode == StudyMode.waiting && z < -9.5) {
         debugPrint('[Sensor] → 뒤집힘 감지! _startActiveStudy()');
@@ -198,7 +216,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
     debugPrint('[Study] _startActiveStudy() 호출됨');
     setState(() {
       _studyMode = StudyMode.active;
-      _studySeconds = 0;
+      _studySeconds.value = 0;
     });
 
     // 포그라운드 알림 갱신
@@ -206,8 +224,8 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
     _studyTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
-        setState(() => _studySeconds++);
-        StudyService.updateTime(_studySeconds);
+        _studySeconds.value++;
+        StudyService.updateTime(_studySeconds.value);
       }
     });
   }
@@ -217,13 +235,13 @@ class _TodayTabState extends ConsumerState<TodayTab>
     if (_studyMode != StudyMode.active) return;
     setState(() {
       _studyMode = StudyMode.paused;
-      _pauseSeconds = 30;
+      _pauseSeconds.value = 30;
     });
     _pauseTimer?.cancel();
     _pauseTimer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted) { t.cancel(); return; }
-      setState(() => _pauseSeconds--);
-      if (_pauseSeconds <= 0) {
+      _pauseSeconds.value--;
+      if (_pauseSeconds.value <= 0) {
         t.cancel();
         _applyPausePenalty();
       }
@@ -234,7 +252,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
     debugPrint('[Study] _resumeActiveStudy()');
     _pauseTimer?.cancel();
     setState(() => _studyMode = StudyMode.active);
-    StudyService.updateTime(_studySeconds);
+    StudyService.updateTime(_studySeconds.value);
   }
 
   Future<void> _applyPausePenalty() async {
@@ -257,7 +275,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
     await StudyService.stopService();
 
     final sessionId = _sessionId;
-    final studySeconds = _studySeconds;
+    final studySeconds = _studySeconds.value;
 
     if (mounted) {
       setState(() {
@@ -660,9 +678,12 @@ class _TodayTabState extends ConsumerState<TodayTab>
                           ],
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          '공부 시간: ${_formatTime(_studySeconds)}',
-                          style: Theme.of(context).textTheme.titleSmall,
+                        ValueListenableBuilder<int>(
+                          valueListenable: _studySeconds,
+                          builder: (_, s, __) => Text(
+                            '공부 시간: ${_formatTime(s)}',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
                         ),
                       ],
                     ),
@@ -687,11 +708,14 @@ class _TodayTabState extends ConsumerState<TodayTab>
                               size: 36, color: Colors.red),
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          '일시정지 중 ($_pauseSeconds초)',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.red,
+                        ValueListenableBuilder<int>(
+                          valueListenable: _pauseSeconds,
+                          builder: (_, s, __) => Text(
+                            '일시정지 중 (${s}초)',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.red,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -1410,7 +1434,7 @@ class _SessionCardState extends ConsumerState<_SessionCard> {
         : '$minutes분 ${seconds}초';
 
     final startStr =
-    DateFormat('HH:mm').format(widget.session.startTime);
+    DateFormat('HH:mm').format(widget.session.startTime.toLocal());
 
     return GestureDetector(
       onLongPress: () => setState(() => _showDelete = !_showDelete),

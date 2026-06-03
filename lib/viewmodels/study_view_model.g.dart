@@ -43,7 +43,7 @@ final subjectViewModelProvider =
 
 typedef _$SubjectViewModel = AutoDisposeAsyncNotifier<List<Subject>>;
 String _$studySessionViewModelHash() =>
-    r'8f626b2f6d7029b747b6bbb50a74c02dc42f475c';
+    r'016431ca76b90b62d524eeae0d559b2ed93b29e0';
 
 /// Copied from Dart SDK
 class _SystemHash {
@@ -212,7 +212,7 @@ class _StudySessionViewModelProviderElement
 }
 
 String _$todayChecklistViewModelHash() =>
-    r'708ddef151800cf2ba2f2c5b3f615133756a8288';
+    r'642dd446aad43341e1278b1adfe08d06ac904b79';
 
 abstract class _$TodayChecklistViewModel
     extends BuildlessAutoDisposeAsyncNotifier<List<Map<String, dynamic>>> {
