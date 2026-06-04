@@ -102,6 +102,7 @@ class SupabaseSyncService {
       'duration_seconds': session.durationSeconds,
       'self_score': session.selfScore,
       'penalty_count': session.penaltyCount,
+      'tray_open_count': session.trayOpenCount,
     });
   }
 
@@ -243,6 +244,7 @@ class SupabaseSyncService {
           drift.Value(row['duration_seconds'] as int? ?? 0),
           selfScore: drift.Value(row['self_score'] as int? ?? 0),
           penaltyCount: drift.Value(row['penalty_count'] as int? ?? 0),
+          trayOpenCount: drift.Value(row['tray_open_count'] as int? ?? 0),
         ));
         restored++;
       }

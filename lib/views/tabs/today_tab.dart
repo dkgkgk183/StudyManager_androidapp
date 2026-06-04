@@ -35,6 +35,11 @@ class _TodayTabState extends ConsumerState<TodayTab>
   String? _sessionId;
   String? _selectedSubjectId;
   String _studySubjectName = '';
+  // ── 실제 경과 시간 추적 (Dart Timer throttling 회피) ──
+  // 타이머는 1초마다 UI를 갱신하는 용도일 뿐, 실제 초 수는
+  // wall-clock(_studySegmentStart + _accumulatedSegmentSeconds)으로 계산.
+  DateTime? _studySegmentStart;
+  int _accumulatedSegmentSeconds = 0;
 
   // ── 일시정지 모드 상태 ─────────────────────────────────
   final ValueNotifier<int> _pauseSeconds = ValueNotifier<int>(30);
@@ -217,22 +222,57 @@ class _TodayTabState extends ConsumerState<TodayTab>
     setState(() {
       _studyMode = StudyMode.active;
       _studySeconds.value = 0;
+      _studySegmentStart = DateTime.now();
+      _accumulatedSegmentSeconds = 0;
     });
 
     // 포그라운드 알림 갱신
     StudyService.startService(_studySubjectName);
 
+    // 타이머는 wall-clock 기반 — Dart Timer가 OS에 의해 throttling되어도
+    // 매 tick에서 실제 경과 시간을 다시 계산하므로 시간이 안 흘러보이지 않음.
     _studyTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
-        _studySeconds.value++;
-        StudyService.updateTime(_studySeconds.value);
+        final total = _computeStudySeconds();
+        _studySeconds.value = total;
+        StudyService.updateTime(total);
       }
     });
+  }
+
+  /// 현재 활성 구간의 wall-clock 기반 경과 초 계산.
+  /// (이전 active 구간 합 + 현재 active 구간 시작~지금)
+  int _computeStudySeconds() {
+    final segStart = _studySegmentStart;
+    if (segStart == null) return _accumulatedSegmentSeconds;
+    return _accumulatedSegmentSeconds +
+        DateTime.now().difference(segStart).inSeconds;
   }
 
   void _onPhoneLifted() {
     debugPrint('[Study] _onPhoneLifted() mode=$_studyMode');
     if (_studyMode != StudyMode.active) return;
+
+    // 폰이 들어올려진 횟수 1 증가 (Supabase tray_open_count로 동기화)
+    if (_sessionId != null) {
+      final selectedDate = ref.read(selectedDateProvider);
+      ref
+          .read(studySessionViewModelProvider(selectedDate).notifier)
+          .recordTrayOpen(_sessionId!);
+    }
+
+    // 일시정지 진입: 현재 active 구간까지의 시간을 누적하고, 새 구간 시작을 멈춤.
+    _studyTimer?.cancel();
+    _studyTimer = null;
+    final segStart = _studySegmentStart;
+    if (segStart != null) {
+      _accumulatedSegmentSeconds +=
+          DateTime.now().difference(segStart).inSeconds;
+      _studySegmentStart = null;
+      _studySeconds.value = _accumulatedSegmentSeconds;
+      StudyService.updateTime(_accumulatedSegmentSeconds);
+    }
+
     setState(() {
       _studyMode = StudyMode.paused;
       _pauseSeconds.value = 30;
@@ -251,8 +291,21 @@ class _TodayTabState extends ConsumerState<TodayTab>
   void _resumeActiveStudy() {
     debugPrint('[Study] _resumeActiveStudy()');
     _pauseTimer?.cancel();
+    // 새 active 구간 시작: segment start를 now로 갱신, 누적값은 보존.
+    _studySegmentStart = DateTime.now();
     setState(() => _studyMode = StudyMode.active);
     StudyService.updateTime(_studySeconds.value);
+
+    // (혹시 타이머가 없으면) 재시작
+    if (_studyTimer == null) {
+      _studyTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) {
+          final total = _computeStudySeconds();
+          _studySeconds.value = total;
+          StudyService.updateTime(total);
+        }
+      });
+    }
   }
 
   Future<void> _applyPausePenalty() async {
@@ -268,6 +321,7 @@ class _TodayTabState extends ConsumerState<TodayTab>
 
   Future<void> _endStudy() async {
     _studyTimer?.cancel();
+    _studyTimer = null;
     _pauseTimer?.cancel();
     _sensorPollTimer?.cancel();
     _sensorPollTimer = null;
@@ -275,7 +329,11 @@ class _TodayTabState extends ConsumerState<TodayTab>
     await StudyService.stopService();
 
     final sessionId = _sessionId;
-    final studySeconds = _studySeconds.value;
+    // 종료 시점 wall-clock 기반 최종값 사용 (throttling 영향 없음)
+    final studySeconds = _computeStudySeconds();
+    _accumulatedSegmentSeconds = 0;
+    _studySegmentStart = null;
+    _studySeconds.value = studySeconds;
 
     if (mounted) {
       setState(() {

@@ -1122,6 +1122,18 @@ class $StudySessionsTable extends StudySessions
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _trayOpenCountMeta = const VerificationMeta(
+    'trayOpenCount',
+  );
+  @override
+  late final GeneratedColumn<int> trayOpenCount = GeneratedColumn<int>(
+    'tray_open_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1132,6 +1144,7 @@ class $StudySessionsTable extends StudySessions
     durationSeconds,
     selfScore,
     penaltyCount,
+    trayOpenCount,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1202,6 +1215,15 @@ class $StudySessionsTable extends StudySessions
         ),
       );
     }
+    if (data.containsKey('tray_open_count')) {
+      context.handle(
+        _trayOpenCountMeta,
+        trayOpenCount.isAcceptableOrUnknown(
+          data['tray_open_count']!,
+          _trayOpenCountMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1243,6 +1265,10 @@ class $StudySessionsTable extends StudySessions
         DriftSqlType.int,
         data['${effectivePrefix}penalty_count'],
       )!,
+      trayOpenCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}tray_open_count'],
+      )!,
     );
   }
 
@@ -1261,6 +1287,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
   final int durationSeconds;
   final int selfScore;
   final int penaltyCount;
+  final int trayOpenCount;
   const StudySession({
     required this.id,
     required this.subjectId,
@@ -1270,6 +1297,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
     required this.durationSeconds,
     required this.selfScore,
     required this.penaltyCount,
+    required this.trayOpenCount,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1286,6 +1314,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
     map['duration_seconds'] = Variable<int>(durationSeconds);
     map['self_score'] = Variable<int>(selfScore);
     map['penalty_count'] = Variable<int>(penaltyCount);
+    map['tray_open_count'] = Variable<int>(trayOpenCount);
     return map;
   }
 
@@ -1303,6 +1332,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
       durationSeconds: Value(durationSeconds),
       selfScore: Value(selfScore),
       penaltyCount: Value(penaltyCount),
+      trayOpenCount: Value(trayOpenCount),
     );
   }
 
@@ -1320,6 +1350,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
       durationSeconds: serializer.fromJson<int>(json['durationSeconds']),
       selfScore: serializer.fromJson<int>(json['selfScore']),
       penaltyCount: serializer.fromJson<int>(json['penaltyCount']),
+      trayOpenCount: serializer.fromJson<int>(json['trayOpenCount']),
     );
   }
   @override
@@ -1334,6 +1365,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
       'durationSeconds': serializer.toJson<int>(durationSeconds),
       'selfScore': serializer.toJson<int>(selfScore),
       'penaltyCount': serializer.toJson<int>(penaltyCount),
+      'trayOpenCount': serializer.toJson<int>(trayOpenCount),
     };
   }
 
@@ -1346,6 +1378,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
     int? durationSeconds,
     int? selfScore,
     int? penaltyCount,
+    int? trayOpenCount,
   }) => StudySession(
     id: id ?? this.id,
     subjectId: subjectId ?? this.subjectId,
@@ -1355,6 +1388,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
     durationSeconds: durationSeconds ?? this.durationSeconds,
     selfScore: selfScore ?? this.selfScore,
     penaltyCount: penaltyCount ?? this.penaltyCount,
+    trayOpenCount: trayOpenCount ?? this.trayOpenCount,
   );
   StudySession copyWithCompanion(StudySessionsCompanion data) {
     return StudySession(
@@ -1370,6 +1404,9 @@ class StudySession extends DataClass implements Insertable<StudySession> {
       penaltyCount: data.penaltyCount.present
           ? data.penaltyCount.value
           : this.penaltyCount,
+      trayOpenCount: data.trayOpenCount.present
+          ? data.trayOpenCount.value
+          : this.trayOpenCount,
     );
   }
 
@@ -1383,7 +1420,8 @@ class StudySession extends DataClass implements Insertable<StudySession> {
           ..write('endTime: $endTime, ')
           ..write('durationSeconds: $durationSeconds, ')
           ..write('selfScore: $selfScore, ')
-          ..write('penaltyCount: $penaltyCount')
+          ..write('penaltyCount: $penaltyCount, ')
+          ..write('trayOpenCount: $trayOpenCount')
           ..write(')'))
         .toString();
   }
@@ -1398,6 +1436,7 @@ class StudySession extends DataClass implements Insertable<StudySession> {
     durationSeconds,
     selfScore,
     penaltyCount,
+    trayOpenCount,
   );
   @override
   bool operator ==(Object other) =>
@@ -1410,7 +1449,8 @@ class StudySession extends DataClass implements Insertable<StudySession> {
           other.endTime == this.endTime &&
           other.durationSeconds == this.durationSeconds &&
           other.selfScore == this.selfScore &&
-          other.penaltyCount == this.penaltyCount);
+          other.penaltyCount == this.penaltyCount &&
+          other.trayOpenCount == this.trayOpenCount);
 }
 
 class StudySessionsCompanion extends UpdateCompanion<StudySession> {
@@ -1422,6 +1462,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
   final Value<int> durationSeconds;
   final Value<int> selfScore;
   final Value<int> penaltyCount;
+  final Value<int> trayOpenCount;
   final Value<int> rowid;
   const StudySessionsCompanion({
     this.id = const Value.absent(),
@@ -1432,6 +1473,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
     this.durationSeconds = const Value.absent(),
     this.selfScore = const Value.absent(),
     this.penaltyCount = const Value.absent(),
+    this.trayOpenCount = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   StudySessionsCompanion.insert({
@@ -1443,6 +1485,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
     this.durationSeconds = const Value.absent(),
     this.selfScore = const Value.absent(),
     this.penaltyCount = const Value.absent(),
+    this.trayOpenCount = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        subjectId = Value(subjectId),
@@ -1456,6 +1499,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
     Expression<int>? durationSeconds,
     Expression<int>? selfScore,
     Expression<int>? penaltyCount,
+    Expression<int>? trayOpenCount,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1467,6 +1511,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
       if (durationSeconds != null) 'duration_seconds': durationSeconds,
       if (selfScore != null) 'self_score': selfScore,
       if (penaltyCount != null) 'penalty_count': penaltyCount,
+      if (trayOpenCount != null) 'tray_open_count': trayOpenCount,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1480,6 +1525,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
     Value<int>? durationSeconds,
     Value<int>? selfScore,
     Value<int>? penaltyCount,
+    Value<int>? trayOpenCount,
     Value<int>? rowid,
   }) {
     return StudySessionsCompanion(
@@ -1491,6 +1537,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
       durationSeconds: durationSeconds ?? this.durationSeconds,
       selfScore: selfScore ?? this.selfScore,
       penaltyCount: penaltyCount ?? this.penaltyCount,
+      trayOpenCount: trayOpenCount ?? this.trayOpenCount,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1522,6 +1569,9 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
     if (penaltyCount.present) {
       map['penalty_count'] = Variable<int>(penaltyCount.value);
     }
+    if (trayOpenCount.present) {
+      map['tray_open_count'] = Variable<int>(trayOpenCount.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1539,6 +1589,7 @@ class StudySessionsCompanion extends UpdateCompanion<StudySession> {
           ..write('durationSeconds: $durationSeconds, ')
           ..write('selfScore: $selfScore, ')
           ..write('penaltyCount: $penaltyCount, ')
+          ..write('trayOpenCount: $trayOpenCount, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2556,6 +2607,7 @@ typedef $$StudySessionsTableCreateCompanionBuilder =
       Value<int> durationSeconds,
       Value<int> selfScore,
       Value<int> penaltyCount,
+      Value<int> trayOpenCount,
       Value<int> rowid,
     });
 typedef $$StudySessionsTableUpdateCompanionBuilder =
@@ -2568,6 +2620,7 @@ typedef $$StudySessionsTableUpdateCompanionBuilder =
       Value<int> durationSeconds,
       Value<int> selfScore,
       Value<int> penaltyCount,
+      Value<int> trayOpenCount,
       Value<int> rowid,
     });
 
@@ -2617,6 +2670,11 @@ class $$StudySessionsTableFilterComposer
 
   ColumnFilters<int> get penaltyCount => $composableBuilder(
     column: $table.penaltyCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get trayOpenCount => $composableBuilder(
+    column: $table.trayOpenCount,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -2669,6 +2727,11 @@ class $$StudySessionsTableOrderingComposer
     column: $table.penaltyCount,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get trayOpenCount => $composableBuilder(
+    column: $table.trayOpenCount,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$StudySessionsTableAnnotationComposer
@@ -2705,6 +2768,11 @@ class $$StudySessionsTableAnnotationComposer
 
   GeneratedColumn<int> get penaltyCount => $composableBuilder(
     column: $table.penaltyCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get trayOpenCount => $composableBuilder(
+    column: $table.trayOpenCount,
     builder: (column) => column,
   );
 }
@@ -2748,6 +2816,7 @@ class $$StudySessionsTableTableManager
                 Value<int> durationSeconds = const Value.absent(),
                 Value<int> selfScore = const Value.absent(),
                 Value<int> penaltyCount = const Value.absent(),
+                Value<int> trayOpenCount = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => StudySessionsCompanion(
                 id: id,
@@ -2758,6 +2827,7 @@ class $$StudySessionsTableTableManager
                 durationSeconds: durationSeconds,
                 selfScore: selfScore,
                 penaltyCount: penaltyCount,
+                trayOpenCount: trayOpenCount,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2770,6 +2840,7 @@ class $$StudySessionsTableTableManager
                 Value<int> durationSeconds = const Value.absent(),
                 Value<int> selfScore = const Value.absent(),
                 Value<int> penaltyCount = const Value.absent(),
+                Value<int> trayOpenCount = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => StudySessionsCompanion.insert(
                 id: id,
@@ -2780,6 +2851,7 @@ class $$StudySessionsTableTableManager
                 durationSeconds: durationSeconds,
                 selfScore: selfScore,
                 penaltyCount: penaltyCount,
+                trayOpenCount: trayOpenCount,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

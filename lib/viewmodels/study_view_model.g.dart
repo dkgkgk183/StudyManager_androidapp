@@ -43,7 +43,7 @@ final subjectViewModelProvider =
 
 typedef _$SubjectViewModel = AutoDisposeAsyncNotifier<List<Subject>>;
 String _$studySessionViewModelHash() =>
-    r'016431ca76b90b62d524eeae0d559b2ed93b29e0';
+    r'98e95c6c70501578b559ce5fcaf5ff9829aec06a';
 
 /// Copied from Dart SDK
 class _SystemHash {
@@ -378,5 +378,149 @@ final statsViewModelProvider =
     );
 
 typedef _$StatsViewModel = AutoDisposeAsyncNotifier<List<Map<String, dynamic>>>;
+String _$statsSummaryViewModelHash() =>
+    r'2bd497a4b9e863b5889636a1eaefb5f010ca2824';
+
+abstract class _$StatsSummaryViewModel
+    extends BuildlessAutoDisposeAsyncNotifier<StatsSummary> {
+  late final DateTime date;
+
+  FutureOr<StatsSummary> build(DateTime date);
+}
+
+/// See also [StatsSummaryViewModel].
+@ProviderFor(StatsSummaryViewModel)
+const statsSummaryViewModelProvider = StatsSummaryViewModelFamily();
+
+/// See also [StatsSummaryViewModel].
+class StatsSummaryViewModelFamily extends Family<AsyncValue<StatsSummary>> {
+  /// See also [StatsSummaryViewModel].
+  const StatsSummaryViewModelFamily();
+
+  /// See also [StatsSummaryViewModel].
+  StatsSummaryViewModelProvider call(DateTime date) {
+    return StatsSummaryViewModelProvider(date);
+  }
+
+  @override
+  StatsSummaryViewModelProvider getProviderOverride(
+    covariant StatsSummaryViewModelProvider provider,
+  ) {
+    return call(provider.date);
+  }
+
+  static const Iterable<ProviderOrFamily>? _dependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get dependencies => _dependencies;
+
+  static const Iterable<ProviderOrFamily>? _allTransitiveDependencies = null;
+
+  @override
+  Iterable<ProviderOrFamily>? get allTransitiveDependencies =>
+      _allTransitiveDependencies;
+
+  @override
+  String? get name => r'statsSummaryViewModelProvider';
+}
+
+/// See also [StatsSummaryViewModel].
+class StatsSummaryViewModelProvider
+    extends
+        AutoDisposeAsyncNotifierProviderImpl<
+          StatsSummaryViewModel,
+          StatsSummary
+        > {
+  /// See also [StatsSummaryViewModel].
+  StatsSummaryViewModelProvider(DateTime date)
+    : this._internal(
+        () => StatsSummaryViewModel()..date = date,
+        from: statsSummaryViewModelProvider,
+        name: r'statsSummaryViewModelProvider',
+        debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
+            ? null
+            : _$statsSummaryViewModelHash,
+        dependencies: StatsSummaryViewModelFamily._dependencies,
+        allTransitiveDependencies:
+            StatsSummaryViewModelFamily._allTransitiveDependencies,
+        date: date,
+      );
+
+  StatsSummaryViewModelProvider._internal(
+    super._createNotifier, {
+    required super.name,
+    required super.dependencies,
+    required super.allTransitiveDependencies,
+    required super.debugGetCreateSourceHash,
+    required super.from,
+    required this.date,
+  }) : super.internal();
+
+  final DateTime date;
+
+  @override
+  FutureOr<StatsSummary> runNotifierBuild(
+    covariant StatsSummaryViewModel notifier,
+  ) {
+    return notifier.build(date);
+  }
+
+  @override
+  Override overrideWith(StatsSummaryViewModel Function() create) {
+    return ProviderOverride(
+      origin: this,
+      override: StatsSummaryViewModelProvider._internal(
+        () => create()..date = date,
+        from: from,
+        name: null,
+        dependencies: null,
+        allTransitiveDependencies: null,
+        debugGetCreateSourceHash: null,
+        date: date,
+      ),
+    );
+  }
+
+  @override
+  AutoDisposeAsyncNotifierProviderElement<StatsSummaryViewModel, StatsSummary>
+  createElement() {
+    return _StatsSummaryViewModelProviderElement(this);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is StatsSummaryViewModelProvider && other.date == date;
+  }
+
+  @override
+  int get hashCode {
+    var hash = _SystemHash.combine(0, runtimeType.hashCode);
+    hash = _SystemHash.combine(hash, date.hashCode);
+
+    return _SystemHash.finish(hash);
+  }
+}
+
+@Deprecated('Will be removed in 3.0. Use Ref instead')
+// ignore: unused_element
+mixin StatsSummaryViewModelRef
+    on AutoDisposeAsyncNotifierProviderRef<StatsSummary> {
+  /// The parameter `date` of this provider.
+  DateTime get date;
+}
+
+class _StatsSummaryViewModelProviderElement
+    extends
+        AutoDisposeAsyncNotifierProviderElement<
+          StatsSummaryViewModel,
+          StatsSummary
+        >
+    with StatsSummaryViewModelRef {
+  _StatsSummaryViewModelProviderElement(super.provider);
+
+  @override
+  DateTime get date => (origin as StatsSummaryViewModelProvider).date;
+}
+
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

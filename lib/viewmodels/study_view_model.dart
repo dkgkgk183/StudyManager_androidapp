@@ -233,6 +233,7 @@ class StudySessionViewModel extends _$StudySessionViewModel {
       durationSeconds: 0,
       selfScore: 0,
       penaltyCount: 0,
+      trayOpenCount: 0,
     )), database);
 
     ref.invalidateSelf();
@@ -261,6 +262,17 @@ class StudySessionViewModel extends _$StudySessionViewModel {
     await database.updateSession(updated);
     await _safeSync(
         'recordPenalty', (svc) => svc.syncSession(updated), database);
+    ref.invalidateSelf();
+  }
+
+  /// 폰이 들어올려진 횟수 1 증가 (공부 중 z < -9.5 → z > 0 전이 시 호출)
+  Future<void> recordTrayOpen(String sessionId) async {
+    final sessions = await database.getAllSessions();
+    final session = sessions.firstWhere((s) => s.id == sessionId);
+    final updated = session.copyWith(trayOpenCount: session.trayOpenCount + 1);
+    await database.updateSession(updated);
+    await _safeSync(
+        'recordTrayOpen', (svc) => svc.syncSession(updated), database);
     ref.invalidateSelf();
   }
 
@@ -441,5 +453,40 @@ class StatsViewModel extends _$StatsViewModel {
   Future<int> getTotalPenaltyCount() async {
     final sessions = await database.getAllSessions();
     return sessions.fold<int>(0, (sum, s) => sum + s.penaltyCount);
+  }
+}
+
+/// 선택된 날짜의 통계 요약 (총 공부시간, penalty 합계, trayOpen 합계)
+class StatsSummary {
+  final int totalSeconds;
+  final int penaltyCount;
+  final int trayOpenCount;
+
+  const StatsSummary({
+    required this.totalSeconds,
+    required this.penaltyCount,
+    required this.trayOpenCount,
+  });
+
+  static const empty = StatsSummary(
+    totalSeconds: 0,
+    penaltyCount: 0,
+    trayOpenCount: 0,
+  );
+}
+
+@riverpod
+class StatsSummaryViewModel extends _$StatsSummaryViewModel {
+  @override
+  Future<StatsSummary> build(DateTime date) async {
+    final sessions = await database.getSessionsByDate(date);
+    final totalSeconds = sessions.fold<int>(0, (s, e) => s + e.durationSeconds);
+    final penaltyCount = sessions.fold<int>(0, (s, e) => s + e.penaltyCount);
+    final trayOpenCount = sessions.fold<int>(0, (s, e) => s + e.trayOpenCount);
+    return StatsSummary(
+      totalSeconds: totalSeconds,
+      penaltyCount: penaltyCount,
+      trayOpenCount: trayOpenCount,
+    );
   }
 }

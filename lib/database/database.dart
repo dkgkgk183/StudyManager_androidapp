@@ -85,6 +85,7 @@ class StudySessions extends Table {
   IntColumn get durationSeconds => integer().withDefault(const Constant(0))();
   IntColumn get selfScore => integer().withDefault(const Constant(0))();
   IntColumn get penaltyCount => integer().withDefault(const Constant(0))();
+  IntColumn get trayOpenCount => integer().withDefault(const Constant(0))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -107,7 +108,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -137,6 +138,19 @@ class AppDatabase extends _$AppDatabase {
           await customStatement(
             'ALTER TABLE study_sessions DROP COLUMN tray_open_count',
           );
+        }
+      }
+      if (from < 5) {
+        // tray_open_count 재도입: 폰 들어올림 횟수 카운트용.
+        // v3 이하에서 v5로 직행하는 경우(컬럼 없음)와 v4에서 DROP이 적용된
+        // 경우(컬럼 없음) 모두 안전하게 통과해야 하므로 컬럼 존재 여부 확인 후 추가.
+        final cols = await customSelect(
+          "PRAGMA table_info(study_sessions)",
+          readsFrom: {studySessions},
+        ).get();
+        final hasTrayOpen = cols.any((r) => r.data['name'] == 'tray_open_count');
+        if (!hasTrayOpen) {
+          await m.addColumn(studySessions, studySessions.trayOpenCount);
         }
       }
     },

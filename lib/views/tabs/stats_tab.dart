@@ -1,8 +1,9 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../viewmodels/study_view_model.dart';
+import 'package:intl/intl.dart';
 import '../../database/database.dart';
+import '../../viewmodels/ui_state.dart';
+import 'today_tab.dart' show checklistDatesInMonthProvider;
 
 class StatsTab extends ConsumerStatefulWidget {
   const StatsTab({super.key});
@@ -11,358 +12,273 @@ class StatsTab extends ConsumerStatefulWidget {
   ConsumerState<StatsTab> createState() => _StatsTabState();
 }
 
-class _StatsTabState extends ConsumerState<StatsTab>
-    with TickerProviderStateMixin {
-  late AnimationController _ringController;
-  late AnimationController _listController;
-  late AnimationController _pulseController;
+class _StatsTabState extends ConsumerState<StatsTab> {
+  bool _calendarExpanded = false;
+  late DateTime _displayMonth;
 
   @override
   void initState() {
     super.initState();
-    _ringController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
+    _displayMonth = DateTime(
+      ref.read(selectedDateProvider).year,
+      ref.read(selectedDateProvider).month,
     );
-    _listController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2000),
-    )..repeat(reverse: true);
   }
 
-  @override
-  void dispose() {
-    _ringController.dispose();
-    _listController.dispose();
-    _pulseController.dispose();
-    super.dispose();
+  void _toggleCalendar() {
+    setState(() {
+      _calendarExpanded = !_calendarExpanded;
+      if (_calendarExpanded) {
+        final selected = ref.read(selectedDateProvider);
+        _displayMonth = DateTime(selected.year, selected.month);
+      }
+    });
   }
 
-  void _startAnimations() {
-    _ringController.forward();
-    Future.delayed(const Duration(milliseconds: 400), () {
-      if (mounted) _listController.forward();
+  void _prevMonth() {
+    setState(() => _displayMonth =
+        DateTime(_displayMonth.year, _displayMonth.month - 1));
+  }
+
+  void _nextMonth() {
+    setState(() => _displayMonth =
+        DateTime(_displayMonth.year, _displayMonth.month + 1));
+  }
+
+  void _selectDate(DateTime date) {
+    ref.read(selectedDateProvider.notifier).setDate(date);
+    setState(() {
+      _calendarExpanded = false;
+      _displayMonth = DateTime(date.year, date.month);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final statsAsync = ref.watch(statsViewModelProvider);
+    final selectedDate = ref.watch(selectedDateProvider);
+    final today = toStudyDate(DateTime.now());
+    final checklistDatesAsync =
+        ref.watch(checklistDatesInMonthProvider(_displayMonth));
+    final checklistDates = checklistDatesAsync.valueOrNull ?? <DateTime>{};
 
     return Scaffold(
       body: SafeArea(
-        child: statsAsync.when(
-          data: (stats) {
-            if (stats.isEmpty) {
-              return const Center(
-                child: Text(
-                  '아직 공부 기록이 없어요.\n오늘 탭에서 공부를 시작해보세요!',
-                  textAlign: TextAlign.center,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── 상단 날짜 버튼 ─────────────────────────
+            InkWell(
+              onTap: _toggleCalendar,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 14),
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_today, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      DateFormat('yyyy년 M월 d일 (E)', 'ko').format(selectedDate),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    AnimatedRotation(
+                      turns: _calendarExpanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 250),
+                      child: const Icon(Icons.expand_more, size: 20),
+                    ),
+                  ],
                 ),
-              );
-            }
-
-            final totalSeconds = stats.fold<int>(
-                0, (sum, item) => sum + (item['totalSeconds'] as int));
-
-            // trigger animations once data is ready
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted && !_ringController.isAnimating) _startAnimations();
-            });
-
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  // ── 원형 시간표 ──────────────────────────────
-                  _buildRingChart(stats, totalSeconds),
-
-                  const SizedBox(height: 24),
-
-                  // ── 과목별 카드 (스태거 애니메이션) ──────────
-                  ...stats.asMap().entries.map((entry) {
-                    return _buildAnimatedCard(entry.key, entry.value,
-                        totalSeconds, stats.length);
-                  }),
-                ],
               ),
-            );
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, s) => Center(child: Text('오류: $e')),
+            ),
+            // ── 슬라이드 캘린더 ─────────────────────────
+            ClipRect(
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: _calendarExpanded
+                    ? _buildCalendar(
+                        context, today, selectedDate, checklistDates)
+                    : const SizedBox(width: double.infinity),
+              ),
+            ),
+            const Divider(height: 1),
+            // ── 본문 (지금은 비어 있음) ─────────────────
+            const Expanded(
+              child: SizedBox.shrink(),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // ── 원형 시간표 ──────────────────────────────────────────
-  Widget _buildRingChart(
-      List<Map<String, dynamic>> stats, int totalSeconds) {
-    return AnimatedBuilder(
-      animation: _ringController,
-      builder: (context, child) {
-        return CustomPaint(
-          size: const Size(220, 220),
-          painter: _RingChartPainter(
-            stats: stats,
-            totalSeconds: totalSeconds,
-            progress: CurvedAnimation(
-              parent: _ringController,
-              curve: Curves.easeOutCubic,
-            ).value,
-            pulseValue: _pulseController.value,
-          ),
-        );
-      },
-    );
-  }
+  Widget _buildCalendar(
+    BuildContext context,
+    DateTime today,
+    DateTime selectedDate,
+    Set<DateTime> checklistDates,
+  ) {
+    final firstDay =
+        DateTime(_displayMonth.year, _displayMonth.month, 1);
+    final startOffset = firstDay.weekday - 1; // 월요일 시작
+    final daysInMonth =
+        DateUtils.getDaysInMonth(_displayMonth.year, _displayMonth.month);
+    final totalCells = startOffset + daysInMonth;
+    final rows = (totalCells / 7).ceil();
 
-  // ── 과목별 카드 ─────────────────────────────────────────
-  Widget _buildAnimatedCard(int index, Map<String, dynamic> item,
-      int totalSeconds, int totalCount) {
-    final subject = item['subject'] as Subject;
-    final seconds = item['totalSeconds'] as int;
-    final ratio = totalSeconds > 0 ? seconds / totalSeconds : 0.0;
-    final color = _colorFromHex(subject.colorHex);
-
-    final delay = index * 0.15;
-    final animation = CurvedAnimation(
-      parent: _listController,
-      curve: Interval(delay, (delay + 0.5).clamp(0.0, 1.0),
-          curve: Curves.easeOutCubic),
-    );
-
-    return AnimatedBuilder(
-      animation: animation,
-      builder: (context, child) {
-        final value = animation.value;
-        return Transform.translate(
-          offset: Offset(0, 30 * (1 - value)),
-          child: Opacity(
-            opacity: value,
-            child: child,
-          ),
-        );
-      },
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 10),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      color: Theme.of(context).colorScheme.surface,
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 월 네비게이션
+          Row(
             children: [
-              Row(
-                children: [
-                  AnimatedBuilder(
-                    animation: _pulseController,
-                    builder: (context, _) {
-                      return Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: color,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: color.withOpacity(0.3 + 0.3 * _pulseController.value),
-                              blurRadius: 4 + 4 * _pulseController.value,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 10),
-                  Text(subject.name,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                  const Spacer(),
-                  Text(_formatDuration(seconds),
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      )),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${(ratio * 100).toStringAsFixed(1)}%',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.color
-                          ?.withOpacity(0.6),
-                    ),
-                  ),
-                ],
+              IconButton(
+                onPressed: _prevMonth,
+                icon: const Icon(Icons.chevron_left),
+                visualDensity: VisualDensity.compact,
               ),
-              const SizedBox(height: 10),
-              // ── 애니메이션 프로그레스 바 ────────────────────
-              AnimatedBuilder(
-                animation: _ringController,
-                builder: (context, _) {
-                  final barProgress = CurvedAnimation(
-                    parent: _ringController,
-                    curve: Curves.easeOutCubic,
-                  ).value;
-                  return ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: LinearProgressIndicator(
-                      value: ratio * barProgress,
-                      backgroundColor: color.withOpacity(0.1),
-                      valueColor: AlwaysStoppedAnimation<Color>(color),
-                      minHeight: 6,
-                    ),
-                  );
-                },
+              Expanded(
+                child: Text(
+                  DateFormat('yyyy년 M월', 'ko').format(_displayMonth),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: _nextMonth,
+                icon: const Icon(Icons.chevron_right),
+                visualDensity: VisualDensity.compact,
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 4),
+          // 요일 헤더
+          Row(
+            children: ['월', '화', '수', '목', '금', '토', '일'].map((d) {
+              Color c = Colors.grey;
+              if (d == '토') c = Colors.blue;
+              if (d == '일') c = Colors.red;
+              return Expanded(
+                child: Center(
+                  child: Text(
+                    d,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: c,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 4),
+          // 날짜 그리드
+          ...List.generate(rows, (rowIdx) {
+            return Row(
+              children: List.generate(7, (colIdx) {
+                final cellIdx = rowIdx * 7 + colIdx;
+                final dayNum = cellIdx - startOffset + 1;
+                if (dayNum < 1 || dayNum > daysInMonth) {
+                  return const Expanded(child: SizedBox(height: 44));
+                }
+                final date = DateTime(
+                    _displayMonth.year, _displayMonth.month, dayNum);
+                final isSelected = date == selectedDate;
+                final isToday = date == today;
+                final hasChecklist = checklistDates.contains(date);
+                final isSat = date.weekday == DateTime.saturday;
+                final isSun = date.weekday == DateTime.sunday;
+
+                Color numColor;
+                if (isSelected) {
+                  numColor = Colors.white;
+                } else if (isToday) {
+                  numColor = Theme.of(context).colorScheme.primary;
+                } else if (isSat) {
+                  numColor = Colors.blue;
+                } else if (isSun) {
+                  numColor = Colors.red;
+                } else {
+                  numColor = Theme.of(context).colorScheme.onSurface;
+                }
+
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => _selectDate(date),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.all(3),
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Theme.of(context).colorScheme.primary
+                                : isToday
+                                    ? Theme.of(context)
+                                        .colorScheme
+                                        .primaryContainer
+                                    : Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '$dayNum',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: isToday || isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              color: numColor,
+                            ),
+                          ),
+                        ),
+                        if (hasChecklist)
+                          Positioned(
+                            top: 2,
+                            right: 2,
+                            child: Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? Colors.white
+                                    : Colors.redAccent,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isSelected
+                                      ? Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                      : Theme.of(context)
+                                          .colorScheme
+                                          .surface,
+                                  width: 1.2,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            );
+          }),
+        ],
       ),
     );
-  }
-
-  String _formatDuration(int totalSeconds) {
-    final h = totalSeconds ~/ 3600;
-    final m = (totalSeconds % 3600) ~/ 60;
-    if (h > 0) return '$h시간 $m분';
-    return '$m분';
-  }
-}
-
-// ── 원형 차트 페인터 ──────────────────────────────────────
-class _RingChartPainter extends CustomPainter {
-  final List<Map<String, dynamic>> stats;
-  final int totalSeconds;
-  final double progress; // 0.0 → 1.0
-  final double pulseValue;
-
-  _RingChartPainter({
-    required this.stats,
-    required this.totalSeconds,
-    required this.progress,
-    required this.pulseValue,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 16;
-    const strokeWidth = 22.0;
-
-    // 배경 링
-    final bgPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..color = Colors.white.withOpacity(0.06);
-    canvas.drawCircle(center, radius, bgPaint);
-
-    if (totalSeconds == 0) return;
-
-    // 과목별 세그먼트
-    double startAngle = -pi / 2;
-    final sweepTotal = 2 * pi * progress;
-
-    for (final item in stats) {
-      final seconds = item['totalSeconds'] as int;
-      if (seconds == 0) continue;
-
-      final subject = item['subject'] as Subject;
-      final color = _colorFromHex(subject.colorHex);
-      final ratio = seconds / totalSeconds;
-      final sweep = sweepTotal * ratio;
-
-      // 메인 세그먼트
-      final segmentPaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth
-        ..strokeCap = StrokeCap.round
-        ..color = color;
-
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        startAngle,
-        sweep - 0.03, // 세그먼트 사이 간격
-        false,
-        segmentPaint,
-      );
-
-      // 글로우 효과
-      final glowPaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth + 6
-        ..color = color.withOpacity(0.15 + 0.1 * pulseValue)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        startAngle,
-        sweep - 0.03,
-        false,
-        glowPaint,
-      );
-
-      startAngle += sweep;
-    }
-
-    // 중앙 텍스트
-    final totalPainter = TextPainter(
-      text: TextSpan(
-        text: _formatTotal(totalSeconds),
-        style: TextStyle(
-          fontSize: 26,
-          fontWeight: FontWeight.bold,
-          color: Colors.white.withOpacity(0.9),
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    totalPainter.paint(
-      canvas,
-      Offset(center.dx - totalPainter.width / 2,
-          center.dy - totalPainter.height / 2 - 10),
-    );
-
-    final labelPainter = TextPainter(
-      text: TextSpan(
-        text: '총 공부 시간',
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.white.withOpacity(0.5),
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    labelPainter.paint(
-      canvas,
-      Offset(center.dx - labelPainter.width / 2,
-          center.dy + totalPainter.height / 2 - 6),
-    );
-  }
-
-  String _formatTotal(int totalSeconds) {
-    final h = totalSeconds ~/ 3600;
-    final m = (totalSeconds % 3600) ~/ 60;
-    final s = totalSeconds % 60;
-    if (h > 0) return '${h}h ${m}m';
-    if (m > 0) return '${m}m ${s}s';
-    return '${s}s';
-  }
-
-  @override
-  bool shouldRepaint(covariant _RingChartPainter old) =>
-      old.progress != progress || old.pulseValue != pulseValue;
-}
-
-Color _colorFromHex(String hex) {
-  try {
-    final h = hex.replaceAll('#', '');
-    return Color(int.parse('FF$h', radix: 16));
-  } catch (_) {
-    return Colors.indigo;
   }
 }
