@@ -1566,59 +1566,152 @@ class _ChecklistItemTile extends ConsumerStatefulWidget {
 }
 
 class _ChecklistItemTileState extends ConsumerState<_ChecklistItemTile> {
-  bool _showDelete = false;
+  bool _showActions = false;
+
+  Future<void> _showEditDialog() async {
+    final ctrl = TextEditingController(text: widget.item.content);
+    final itemId = widget.item.id;
+    final date = widget.date;
+
+    String? result;
+    try {
+      result = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('체크리스트 수정'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            maxLines: null,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              hintText: '할 일 내용',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('취소'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final text = ctrl.text.trim();
+                if (text.isEmpty) return;
+                Navigator.pop(dialogContext, text);
+              },
+              child: const Text('저장'),
+            ),
+          ],
+        ),
+      );
+    } catch (e, st) {
+      debugPrint('[_showEditDialog] dialog error: $e\n$st');
+    } finally {
+      ctrl.dispose();
+    }
+
+    if (result == null || result.isEmpty) return;
+    if (!mounted) return;
+
+    try {
+      await ref
+          .read(todayChecklistViewModelProvider(date).notifier)
+          .updateItemContent(itemId, result);
+    } catch (e, st) {
+      debugPrint('[_showEditDialog] update error: $e\n$st');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final color = _colorFromHex(widget.subject.colorHex);
+    final theme = Theme.of(context);
 
     return GestureDetector(
-      onLongPress: () => setState(() => _showDelete = !_showDelete),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 8, right: 4, top: 2, bottom: 2),
-        child: Row(
-          children: [
-            Checkbox(
-              value: widget.item.isChecked,
-              activeColor: color,
-              onChanged: widget.enabled
-                  ? (value) async {
-                      await ref
-                          .read(todayChecklistViewModelProvider(widget.date).notifier)
-                          .toggleItem(widget.item.id, value ?? false);
-                      widget.onChanged?.call();
-                    }
-                  : null,
-            ),
-            Expanded(
-              child: Text(
-                widget.item.content,
-                style: TextStyle(
-                  decoration:
-                      widget.item.isChecked ? TextDecoration.lineThrough : null,
-                  color: widget.item.isChecked ? Colors.grey : null,
+      onLongPress: () => setState(() => _showActions = !_showActions),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        margin: const EdgeInsets.symmetric(vertical: 1),
+        decoration: BoxDecoration(
+          color: _showActions
+              ? color.withOpacity(0.12)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: _showActions
+                ? color.withOpacity(0.5)
+                : Colors.transparent,
+            width: 1.2,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.only(left: 8, right: 4, top: 2, bottom: 2),
+          child: Row(
+            children: [
+              Checkbox(
+                value: widget.item.isChecked,
+                activeColor: color,
+                onChanged: widget.enabled
+                    ? (value) async {
+                        await ref
+                            .read(todayChecklistViewModelProvider(widget.date).notifier)
+                            .toggleItem(widget.item.id, value ?? false);
+                        widget.onChanged?.call();
+                      }
+                    : null,
+              ),
+              Expanded(
+                child: Text(
+                  widget.item.content,
+                  style: TextStyle(
+                    decoration:
+                        widget.item.isChecked ? TextDecoration.lineThrough : null,
+                    color: widget.item.isChecked ? Colors.grey : null,
+                  ),
                 ),
               ),
-            ),
-            if (_showDelete)
-              IconButton(
-                icon: const Icon(Icons.close, size: 18, color: Colors.red),
-                onPressed: () async {
-                  await ref
-                      .read(todayChecklistViewModelProvider(widget.date)
-                          .notifier)
-                      .deleteItem(widget.item.id);
-                },
+              if (_showActions) ...[
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                  icon: Icon(Icons.edit_outlined,
+                      size: 16, color: theme.colorScheme.primary),
+                  tooltip: '수정',
+                  onPressed: _showEditDialog,
+                ),
+                const SizedBox(width: 2),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                  icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                  tooltip: '삭제',
+                  onPressed: () async {
+                    await ref
+                        .read(todayChecklistViewModelProvider(widget.date)
+                            .notifier)
+                        .deleteItem(widget.item.id);
+                  },
+                ),
+              ],
+              ReorderableDragStartListener(
+                index: widget.index,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Icon(Icons.drag_handle,
+                      size: 20, color: Colors.grey.shade400),
+                ),
               ),
-            ReorderableDragStartListener(
-              index: widget.index,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Icon(Icons.drag_handle,
-                    size: 20, color: Colors.grey.shade400),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

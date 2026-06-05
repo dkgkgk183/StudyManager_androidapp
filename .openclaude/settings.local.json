@@ -31,7 +31,9 @@
       "Bash(sed -i 's/study_active/study_active_v2/g' android/app/src/main/kotlin/com/example/study_manager/MainActivity.kt)",
       "Bash(sed -i 's/study_active/study_active_v2/g' android/app/src/main/kotlin/com/example/study_manager/StudyForegroundService.kt)",
       "Bash(dart doc:*)",
-      "Bash(find D:/AndroidStudioProjects/study_manager -path */sensors_plus* -name *.dart)"
+      "Bash(find D:/AndroidStudioProjects/study_manager -path */sensors_plus* -name *.dart)",
+      "Bash(ls D:/AndroidStudioProjects/study_manager/android/app/*.jks)",
+      "Bash(ls D:/AndroidStudioProjects/study_manager/android/app/*.keystore)"
     ]
   }
 }

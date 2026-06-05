@@ -353,6 +353,21 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
     ref.invalidateSelf();
   }
 
+  Future<void> updateItemContent(String itemId, String newContent) async {
+    final dateStr = formatDateStr(date);
+    final items = await database.getChecklistItemsByDate(dateStr);
+    final idx = items.indexWhere((i) => i.id == itemId);
+    if (idx < 0) {
+      debugPrint('[updateItemContent] item not found: $itemId');
+      return;
+    }
+    final updated = items[idx].copyWith(content: newContent);
+    await database.updateChecklistItem(updated);
+    await _safeSync(
+        'updateChecklistItem', (svc) => svc.syncChecklistItem(updated), database);
+    ref.invalidateSelf();
+  }
+
   Future<void> deleteItem(String itemId) async {
     await database.deleteChecklistItem(itemId);
     await _safeSync(
@@ -456,23 +471,67 @@ class StatsViewModel extends _$StatsViewModel {
   }
 }
 
-/// 선택된 날짜의 통계 요약 (총 공부시간, penalty 합계, trayOpen 합계)
+/// 선택된 날짜의 통계 요약 (총 공부시간, 세션 개수, penalty 합계, trayOpen 합계)
 class StatsSummary {
   final int totalSeconds;
+  final int sessionCount;
   final int penaltyCount;
   final int trayOpenCount;
 
   const StatsSummary({
     required this.totalSeconds,
+    required this.sessionCount,
     required this.penaltyCount,
     required this.trayOpenCount,
   });
 
   static const empty = StatsSummary(
     totalSeconds: 0,
+    sessionCount: 0,
     penaltyCount: 0,
     trayOpenCount: 0,
   );
+
+  /// 집중도 점수 계산 (0~100).
+  ///
+  /// 가중치:
+  ///   - 패널티 1회당 -15 (가장 높음)
+  ///   - 초과 폰 들고나림 1회당 -5 (중간)
+  ///     · 세션당 1회는 기본 (시작/종료 시 확인)
+  ///     · 세션 수를 초과한 만큼만 집중도 하락으로 간주
+  ///   - 공부 시간 보너스 +0~+20 (30분=+20, 선형)
+  ///   - 세션 보너스 +0~+5 (1세션당 +1)
+  static int computeFocusScore({
+    required int sessionCount,
+    required int phoneLiftCount,
+    required int penaltyCount,
+    required int totalSeconds,
+  }) {
+    if (sessionCount == 0) return 0;
+
+    final excessLifts =
+        phoneLiftCount > sessionCount ? phoneLiftCount - sessionCount : 0;
+
+    const penaltyWeight = 15.0;
+    const liftWeight = 5.0;
+    const timeBonusCap = 20.0;
+    const sessionBonusCap = 5.0;
+    const secondsPerBonusUnit = 180.0; // 30분 → +20
+
+    final penaltyCost = penaltyCount * penaltyWeight;
+    final liftCost = excessLifts * liftWeight;
+    final timeBonus = (totalSeconds / secondsPerBonusUnit) < timeBonusCap
+        ? totalSeconds / secondsPerBonusUnit
+        : timeBonusCap;
+    final sessionBonus = sessionCount < sessionBonusCap
+        ? sessionCount.toDouble()
+        : sessionBonusCap;
+
+    final raw = 100 - penaltyCost - liftCost + timeBonus + sessionBonus;
+    if (raw < 0) return 0;
+    if (raw > 100) return 100;
+    return raw.round();
+  }
 }
 
 @riverpod
@@ -485,6 +544,7 @@ class StatsSummaryViewModel extends _$StatsSummaryViewModel {
     final trayOpenCount = sessions.fold<int>(0, (s, e) => s + e.trayOpenCount);
     return StatsSummary(
       totalSeconds: totalSeconds,
+      sessionCount: sessions.length,
       penaltyCount: penaltyCount,
       trayOpenCount: trayOpenCount,
     );
