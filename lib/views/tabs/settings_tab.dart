@@ -410,10 +410,90 @@ class _SubjectTile extends ConsumerWidget {
       contentPadding: const EdgeInsets.only(left: 24, right: 8),
       leading: CircleAvatar(backgroundColor: color, radius: 12),
       title: Text(subject.name, style: const TextStyle(fontSize: 14)),
+      onTap: () => _showEditSubjectDialog(context, ref),
       trailing: IconButton(
         icon: const Icon(Icons.delete_outline,
             color: Colors.redAccent, size: 18),
         onPressed: () => _showDeleteSubjectDialog(context, ref),
+      ),
+    );
+  }
+
+  Future<void> _showEditSubjectDialog(BuildContext context, WidgetRef ref) async {
+    final nameCtrl = TextEditingController(text: subject.name);
+    String selectedColor = subject.colorHex;
+    // 현재 과목 색깔이 프리셋에 없으면 프리셋 첫 번째로 fallback
+    if (!_presetColors.contains(selectedColor)) {
+      selectedColor = _presetColors.first;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('과목 수정'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: '과목명',
+                  isDense: true,
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('색상 선택', style: TextStyle(fontSize: 12)),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _presetColors.map((hex) {
+                  final color = _colorFromHex(hex);
+                  return GestureDetector(
+                    onTap: () => setState(() => selectedColor = hex),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        border: selectedColor == hex
+                            ? Border.all(width: 3, color: Colors.black45)
+                            : null,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final newName = nameCtrl.text.trim();
+                if (newName.isEmpty) return;
+                final updated = subject.copyWith(
+                  name: newName,
+                  colorHex: selectedColor,
+                );
+                await ref
+                    .read(subjectViewModelProvider.notifier)
+                    .updateSubject(updated);
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text('저장'),
+            ),
+          ],
+        ),
       ),
     );
   }
