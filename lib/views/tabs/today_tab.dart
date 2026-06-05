@@ -1549,6 +1549,73 @@ class _SessionCardState extends ConsumerState<_SessionCard> {
   }
 }
 
+// ── 체크리스트 수정 다이얼로그 ─────────────────────────────
+//
+// 외부에서 controller를 관리해서 dispose 시점이 꼬이면
+// (다이얼로그 dismiss 애니메이션 중에 controller가 해제되면서)
+// "TextEditingController was used after being disposed" 에러가 터짐.
+// 자체 State에서 controller를 만들고 dispose()에서 해제하면
+// 위젯 트리에서 완전히 제거된 뒤에 정리되므로 안전.
+class _EditChecklistDialog extends StatefulWidget {
+  final String initialContent;
+  final ValueChanged<String> onSaved;
+  final VoidCallback onCancel;
+  const _EditChecklistDialog({
+    required this.initialContent,
+    required this.onSaved,
+    required this.onCancel,
+  });
+
+  @override
+  State<_EditChecklistDialog> createState() => _EditChecklistDialogState();
+}
+
+class _EditChecklistDialogState extends State<_EditChecklistDialog> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialContent);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('체크리스트 수정'),
+      content: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        maxLines: null,
+        decoration: const InputDecoration(
+          border: OutlineInputBorder(),
+          hintText: '할 일 내용',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: widget.onCancel,
+          child: const Text('취소'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final text = _ctrl.text.trim();
+            if (text.isEmpty) return;
+            widget.onSaved(text);
+          },
+          child: const Text('저장'),
+        ),
+      ],
+    );
+  }
+}
+
 // ── 체크리스트 항목 타일 ─────────────────────────────────
 class _ChecklistItemTile extends ConsumerStatefulWidget {
   final ChecklistItem item;
@@ -1569,58 +1636,64 @@ class _ChecklistItemTileState extends ConsumerState<_ChecklistItemTile> {
   bool _showActions = false;
 
   Future<void> _showEditDialog() async {
-    final ctrl = TextEditingController(text: widget.item.content);
     final itemId = widget.item.id;
     final date = widget.date;
+    final initialContent = widget.item.content;
+    debugPrint('[_showEditDialog] 1. 시작, itemId=$itemId, mounted=$mounted');
 
     String? result;
     try {
+      debugPrint('[_showEditDialog] 2. showDialog 호출 직전');
       result = await showDialog<String>(
         context: context,
         barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('체크리스트 수정'),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            maxLines: null,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: '할 일 내용',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('취소'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final text = ctrl.text.trim();
-                if (text.isEmpty) return;
-                Navigator.pop(dialogContext, text);
-              },
-              child: const Text('저장'),
-            ),
-          ],
-        ),
+        builder: (dialogContext) {
+          debugPrint('[_showEditDialog] 3. dialog builder 실행');
+          return _EditChecklistDialog(
+            initialContent: initialContent,
+            onSaved: (text) {
+              debugPrint('[_showEditDialog] 4b. 저장, text="$text"');
+              Navigator.pop(dialogContext, text);
+            },
+            onCancel: () {
+              debugPrint('[_showEditDialog] 4a. 취소');
+              Navigator.pop(dialogContext);
+            },
+          );
+        },
       );
+      debugPrint('[_showEditDialog] 5. showDialog 반환, result=$result');
     } catch (e, st) {
       debugPrint('[_showEditDialog] dialog error: $e\n$st');
-    } finally {
-      ctrl.dispose();
     }
 
-    if (result == null || result.isEmpty) return;
-    if (!mounted) return;
-
-    try {
-      await ref
-          .read(todayChecklistViewModelProvider(date).notifier)
-          .updateItemContent(itemId, result);
-    } catch (e, st) {
-      debugPrint('[_showEditDialog] update error: $e\n$st');
+    if (result == null || result.isEmpty) {
+      debugPrint('[_showEditDialog] 7. result 비어있음 → 종료');
+      return;
     }
+    final newContent = result;
+    debugPrint('[_showEditDialog] 8. updateItemContent 예약, newContent="$newContent", mounted=$mounted');
+
+    // 다이얼로그 dismiss + 위젯 트리 안정화 이후에 업데이트 실행.
+    // 같은 프레임에서 ref.invalidateSelf() → ReorderableListView 아이템 unmount가
+    // 일어나면 InheritedWidget dependents 정리가 따라잡지 못해
+    // '_dependents.isEmpty' assertion이 터지는 race condition 회피.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      debugPrint('[_showEditDialog] 9. postFrame 콜백 시작, mounted=$mounted');
+      if (!mounted) {
+        debugPrint('[_showEditDialog] 10. unmount됨 → 종료');
+        return;
+      }
+      try {
+        debugPrint('[_showEditDialog] 11. updateItemContent 호출 직전');
+        await ref
+            .read(todayChecklistViewModelProvider(date).notifier)
+            .updateItemContent(itemId, newContent);
+        debugPrint('[_showEditDialog] 12. updateItemContent 완료');
+      } catch (e, st) {
+        debugPrint('[_showEditDialog] update error: $e\n$st');
+      }
+    });
   }
 
   @override
