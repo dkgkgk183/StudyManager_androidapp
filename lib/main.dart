@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'database/database.dart';
+import 'viewmodels/focus_briefing_view_model.dart';
 import 'viewmodels/ui_state.dart';
 import 'views/main_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -39,6 +40,9 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(appThemeModeProvider);
+    // 앱 시작 시 오늘자 브리핑 캐시가 stale이면 백그라운드에서 즉시 재생성.
+    // (비정상 종료 후 재시작 대비. 통계 탭 진입 시 캐시 hit → 즉시 표시.)
+    ref.watch(startupBriefingCheckProvider);
 
     return MaterialApp(
       title: '탁상 AI 스터디 매니저',

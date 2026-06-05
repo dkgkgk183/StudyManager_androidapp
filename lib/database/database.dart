@@ -188,6 +188,9 @@ class AppDatabase extends _$AppDatabase {
   Future<List<Subject>> getAllSubjects() =>
       (select(subjects)..orderBy([(t) => OrderingTerm(expression: t.name)])).get();
 
+  Future<Subject?> getSubjectById(String id) =>
+      (select(subjects)..where((t) => t.id.equals(id))).getSingleOrNull();
+
   Future<List<Subject>> getSubjectsByCategory(String categoryId) =>
       (select(subjects)
         ..where((t) => t.categoryId.equals(categoryId))

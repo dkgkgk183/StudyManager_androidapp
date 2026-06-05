@@ -45,6 +45,12 @@ class _TodayTabState extends ConsumerState<TodayTab>
   final ValueNotifier<int> _pauseSeconds = ValueNotifier<int>(30);
   Timer? _pauseTimer;
 
+  // 들어올림이 감지됐지만 아직 tray_open_count로 커밋되지 않은 보류 상태.
+  // 공부 재개(_resumeActiveStudy) 또는 pause 만료(_applyPausePenalty) 시
+  // 커밋되며, 공부를 그냥 종료(_endStudy)하면 버려진다 — 이 경우의
+  // 마지막 들어올림은 "공부 종료" 동작으로 간주해 기록하지 않음.
+  bool _pendingTrayOpen = false;
+
   // ── 센서 ───────────────────────────────────────────────
   Timer? _sensorPollTimer;
 
@@ -253,13 +259,11 @@ class _TodayTabState extends ConsumerState<TodayTab>
     debugPrint('[Study] _onPhoneLifted() mode=$_studyMode');
     if (_studyMode != StudyMode.active) return;
 
-    // 폰이 들어올려진 횟수 1 증가 (Supabase tray_open_count로 동기화)
-    if (_sessionId != null) {
-      final selectedDate = ref.read(selectedDateProvider);
-      ref
-          .read(studySessionViewModelProvider(selectedDate).notifier)
-          .recordTrayOpen(_sessionId!);
-    }
+    // 폰 들어올림 카운트는 즉시 기록하지 않고 보류한다.
+    // - 재개(_resumeActiveStudy) 시 커밋 → 진짜로 공부 흐름이 끊긴 경우
+    // - pause 만료(_applyPausePenalty) 시 커밋 → 다시 안 엎고 놔둔 경우
+    // - 종료(_endStudy) 시 버림 → 마지막 들어올림은 "공부 종료" 동작으로 간주
+    _pendingTrayOpen = true;
 
     // 일시정지 진입: 현재 active 구간까지의 시간을 누적하고, 새 구간 시작을 멈춤.
     _studyTimer?.cancel();
@@ -291,6 +295,14 @@ class _TodayTabState extends ConsumerState<TodayTab>
   void _resumeActiveStudy() {
     debugPrint('[Study] _resumeActiveStudy()');
     _pauseTimer?.cancel();
+    // 보류된 tray open이 있으면 커밋 (공부 흐름이 실제로 끊긴 것으로 인정)
+    if (_pendingTrayOpen && _sessionId != null) {
+      _pendingTrayOpen = false;
+      final selectedDate = ref.read(selectedDateProvider);
+      ref
+          .read(studySessionViewModelProvider(selectedDate).notifier)
+          .recordTrayOpen(_sessionId!);
+    }
     // 새 active 구간 시작: segment start를 now로 갱신, 누적값은 보존.
     _studySegmentStart = DateTime.now();
     setState(() => _studyMode = StudyMode.active);
@@ -311,9 +323,17 @@ class _TodayTabState extends ConsumerState<TodayTab>
   Future<void> _applyPausePenalty() async {
     if (_sessionId != null) {
       final selectedDate = ref.read(selectedDateProvider);
-      await ref
-          .read(studySessionViewModelProvider(selectedDate).notifier)
-          .recordPenalty(_sessionId!);
+      final notifier = ref.read(
+          studySessionViewModelProvider(selectedDate).notifier);
+
+      // 보류된 tray open을 penalty와 함께 커밋 (pause 만료 = 실제 흐름 끊김 인정)
+      final futures = <Future<void>>[];
+      if (_pendingTrayOpen) {
+        _pendingTrayOpen = false;
+        futures.add(notifier.recordTrayOpen(_sessionId!));
+      }
+      futures.add(notifier.recordPenalty(_sessionId!));
+      await Future.wait(futures);
     }
 
     if (mounted) setState(() => _studyMode = StudyMode.active);
@@ -325,6 +345,9 @@ class _TodayTabState extends ConsumerState<TodayTab>
     _pauseTimer?.cancel();
     _sensorPollTimer?.cancel();
     _sensorPollTimer = null;
+    // 종료 시 보류 중이던 tray open은 버린다 — 마지막 들어올림은
+    // "공부 종료" 동작으로 간주.
+    _pendingTrayOpen = false;
     await StudyService.stopSensor();
     await StudyService.stopService();
 

@@ -344,12 +344,11 @@ class _DailySummary extends ConsumerWidget {
     );
     final gaugeTotal = segments.fold<int>(0, (s, e) => s + e.seconds);
 
-    // 로컬 트레이의 마지막 1회는 공부 종료 시 무조건 발생하는 거니까
-    // 집중도 계산에서만 차감. 라즈베리파이 트레이는 차감 없음.
-    final phoneLiftCount = (summary.trayOpenCountLocal > 0
-            ? summary.trayOpenCountLocal - 1
-            : 0) +
-        summary.trayOpenCountRpi;
+    // 들어올림은 DB에 실제 기록된 횟수 그대로 사용한다.
+    // (공부 종료 시 마지막 들어올림은 _pendingTrayOpen으로 버려지므로
+    // trayOpenCountLocal은 "진짜로 흐름이 끊긴 횟수"에 해당한다.)
+    final phoneLiftCount =
+        summary.trayOpenCountLocal + summary.trayOpenCountRpi;
 
     // 집중도 점수 (3타일 + 공부 시간 기반)
     final hasStudy = summary.sessionCount > 0;

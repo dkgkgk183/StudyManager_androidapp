@@ -6,6 +6,45 @@ import 'package:drift/drift.dart' as drift;
 
 const String _kDeviceId = 'device_number';
 
+/// RPi 업로드 시각의 wall clock(KST 기준)을 tz 표기와 무관하게 보존한다.
+///
+/// RPi는 KST wall clock을 업로드하지만:
+/// - RPi 시스템 클럭이 UTC라 `DateTime.now().toIso8601String()`이 `Z`를 붙이거나
+/// - PostgREST serialization이 `+09:00`을 붙이거나
+/// - tz 없이 naive로 전송되는 등 직렬화 형식이 제각각이다.
+///
+/// 어느 경우든 **문자열에 적힌 시각이 곧 RPi에서 사용자가 본 wall clock**이므로
+/// tz 접미사(Z, +HH:MM, -HH:MM)를 제거하고 naive로 파싱해 로컬 DateTime으로 만든다.
+/// → KST 디바이스에서 `.toLocal()`이 identity가 되어 wall clock 그대로 표시됨.
+///
+/// 예:
+///   "2024-06-06T00:19:00Z"          → DateTime(2024, 6, 6, 0, 19) (00:19 보존)
+///   "2024-06-05T15:19:00+09:00"     → DateTime(2024, 6, 5, 15, 19)
+///   "2024-06-06T00:19:00"           → DateTime(2024, 6, 6, 0, 19)
+DateTime _parseRpiWallClock(String iso) {
+  final tIdx = iso.indexOf('T');
+  if (tIdx < 0) {
+    return DateTime.parse(iso);
+  }
+  final datePart = iso.substring(0, tIdx);
+  var timePart = iso.substring(tIdx + 1);
+  // tz 접미사(Z, +HH:MM, -HH:MM) 제거
+  final tzMatch = RegExp(r'[Zz+\-]').firstMatch(timePart);
+  if (tzMatch != null) {
+    timePart = timePart.substring(0, tzMatch.start);
+  }
+  final dp = datePart.split('-');
+  final tp = timePart.split(':');
+  return DateTime(
+    int.parse(dp[0]),
+    int.parse(dp[1]),
+    int.parse(dp[2]),
+    int.parse(tp[0]),
+    int.parse(tp[1]),
+    tp.length > 2 ? int.parse(tp[2]) : 0,
+  );
+}
+
 /// 기기 고유 번호(000~999)를 SharedPreferences에서 조회.
 Future<String> getOrCreateDeviceId() async {
   final prefs = await SharedPreferences.getInstance();
@@ -178,37 +217,52 @@ class SupabaseSyncService {
     final uid = await getOrCreateDeviceId();
     if (uid.isEmpty) return [];
 
-    final startOfStudyDay = studyDayStart(date);
-    final endOfStudyDay = studyDayEnd(date);
+    // 48시간 윈도우로 쿼리.
+    // RPi의 시스템 클럭이 UTC이든 KST이든, wall clock이 D에 속하는 세션은
+    // UTC로 환산 시 [D-1 00:00Z, D+1 00:00Z) 범위 어딘가에 위치함 (UTC-12 ~ UTC+14).
+    // 좁은 studyDayStart/End 범위(06:00 경계 기준)를 쓰면 wall clock이
+    // 22:47 같은 늦은 시각일 때 UTC가 다음 study day 범위로 새어 들어감.
+    final queryStart =
+        DateTime.utc(date.year, date.month, date.day)
+            .subtract(const Duration(days: 1));
+    final queryEnd = queryStart.add(const Duration(days: 2));
 
     try {
       final rows = await _supabase
           .from('study_sessions')
           .select()
           .eq('user_id', uid)
-          .gte('start_time', startOfStudyDay.toUtc().toIso8601String())
-          .lt('start_time', endOfStudyDay.toUtc().toIso8601String());
+          .gte('start_time', queryStart.toIso8601String())
+          .lt('start_time', queryEnd.toIso8601String());
+
+      // wall clock 기준 study day로 필터링 — 06:00 룰 강제
+      final targetDate = DateTime(date.year, date.month, date.day);
 
       return rows.map<StudySession>((r) {
         final idStr = r['id'] as String;
         final isRpi = idStr.length == 10;
-        final startDt = DateTime.parse(r['start_time'] as String);
+        // RPi wall clock은 tz 무시하고 그대로 보존, 로컬 세션은 UTC→local 변환
+        final startDt = isRpi
+            ? _parseRpiWallClock(r['start_time'] as String)
+            : DateTime.parse(r['start_time'] as String).toLocal();
         final rawEnd = r['end_time'] as String?;
-        final endDt = rawEnd != null ? DateTime.parse(rawEnd) : null;
+        final endDt = rawEnd == null
+            ? null
+            : (isRpi
+                ? _parseRpiWallClock(rawEnd)
+                : DateTime.parse(rawEnd).toLocal());
         return StudySession(
           id: idStr,
           subjectId: r['subject_id'] as String,
           planId: r['plan_id'] as String?,
-          startTime: isRpi ? startDt : startDt.toLocal(),
-          endTime: endDt == null
-              ? null
-              : (isRpi ? endDt : endDt.toLocal()),
+          startTime: startDt,
+          endTime: endDt,
           durationSeconds: r['duration_seconds'] as int? ?? 0,
           selfScore: r['self_score'] as int? ?? 0,
           penaltyCount: r['penalty_count'] as int? ?? 0,
           trayOpenCount: r['tray_open_count'] as int? ?? 0,
         );
-      }).toList();
+      }).where((s) => toStudyDate(s.startTime) == targetDate).toList();
     } catch (e, st) {
       debugPrint('[SupabaseSync] fetchTodaySessions 실패: $e\n$st');
       return [];

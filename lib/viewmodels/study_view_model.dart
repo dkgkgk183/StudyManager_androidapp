@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../database/database.dart';
 import '../main.dart';
+import '../services/api_key_service.dart';
+import '../services/briefing_service.dart';
 import '../services/supabase_sync_service.dart';
 
 part 'study_view_model.g.dart';
@@ -203,15 +206,83 @@ class SubjectViewModel extends _$SubjectViewModel {
 class StudySessionViewModel extends _$StudySessionViewModel {
   @override
   Future<List<Map<String, dynamic>>> build(DateTime date) async {
-    final results = await database.getSessionsWithSubject(date).get();
-    final list = results.map((row) => {
-      'session': row.readTable(database.studySessions),
-      'subject': row.readTable(database.subjects),
-    }).toList()
+    // 로컬 세션 + Supabase에서 라즈베리파이 세션 pull 후 ID 기준 병합.
+    // 동일 ID면 원격(RPi) 우선 — 트레이 센서 갱신분이 더 최신.
+    // RPi 전용 세션(로컬에 없는)은 subjectId로 로컬 과목 조회.
+    final localRows = await database.getSessionsWithSubject(date).get();
+    final remoteSessions =
+        await SupabaseSyncService(database).fetchTodaySessions(date);
+
+    final merged = <String, Map<String, dynamic>>{};
+    for (final row in localRows) {
+      final session = row.readTable(database.studySessions);
+      final subject = row.readTable(database.subjects);
+      merged[session.id] = {'session': session, 'subject': subject};
+    }
+
+    // RPi 전용 세션들의 subject를 한 번에 조회 (N+1 방지)
+    final missingSubjectIds = remoteSessions
+        .where((rs) => !merged.containsKey(rs.id))
+        .map((rs) => rs.subjectId)
+        .toSet();
+    final subjectsById = <String, Subject>{};
+    for (final id in missingSubjectIds) {
+      final s = await database.getSubjectById(id);
+      if (s != null) subjectsById[id] = s;
+    }
+
+    for (final rs in remoteSessions) {
+      if (merged.containsKey(rs.id)) {
+        // 같은 ID의 로컬 세션이 있으면 session 필드만 갱신 (subject 유지)
+        merged[rs.id]!['session'] = rs;
+      } else {
+        // RPi 전용 세션 — subject 조회, 없으면 placeholder
+        final subject = subjectsById[rs.subjectId] ??
+            Subject(
+              id: rs.subjectId,
+              categoryId: null,
+              name: '알 수 없는 과목',
+              colorHex: '#9E9E9E',
+            );
+        merged[rs.id] = {'session': rs, 'subject': subject};
+      }
+    }
+
+    final list = merged.values.toList()
       ..sort((a, b) => (a['session'] as StudySession)
           .startTime
           .compareTo((b['session'] as StudySession).startTime));
     return list;
+  }
+
+  /// 세션/체크리스트/요약을 강제 리빌드한 뒤 브리핑을 재생성·저장한다.
+  /// 통계 탭에 들어오기 전에 백그라운드에서 미리 돌려놓기 위한 트리거.
+  /// (세션 카운트 등 브리핑 입력에 영향이 있는 변경에서만 호출한다.)
+  void _kickOffBriefingRegeneration(DateTime date) {
+    unawaited(() async {
+      try {
+        final summary =
+            await ref.read(statsSummaryViewModelProvider(date).future);
+        final sessions = ref
+                .read(studySessionViewModelProvider(date))
+                .valueOrNull ??
+            const <Map<String, dynamic>>[];
+        final checklist = ref
+                .read(todayChecklistViewModelProvider(date))
+                .valueOrNull ??
+            const <Map<String, dynamic>>[];
+        final apiKey = ref.read(openRouterApiKeyProvider).valueOrNull;
+        await ref.read(briefingServiceProvider).regenerateAndSave(
+              date: date,
+              summary: summary,
+              sessions: sessions,
+              checklist: checklist,
+              apiKey: apiKey,
+            );
+      } catch (e) {
+        debugPrint('[_kickOffBriefingRegeneration] 실패: $e');
+      }
+    }());
   }
 
   Future<String> startSession({
@@ -241,6 +312,7 @@ class StudySessionViewModel extends _$StudySessionViewModel {
     )), database);
 
     ref.invalidateSelf();
+    _kickOffBriefingRegeneration(date);
     return id;
   }
 
@@ -257,6 +329,7 @@ class StudySessionViewModel extends _$StudySessionViewModel {
         'endSession', (svc) => svc.syncSession(updated), database);
 
     ref.invalidateSelf();
+    _kickOffBriefingRegeneration(date);
   }
 
   Future<void> recordPenalty(String sessionId) async {
@@ -267,6 +340,7 @@ class StudySessionViewModel extends _$StudySessionViewModel {
     await _safeSync(
         'recordPenalty', (svc) => svc.syncSession(updated), database);
     ref.invalidateSelf();
+    _kickOffBriefingRegeneration(date);
   }
 
   /// 폰이 들어올려진 횟수 1 증가 (공부 중 z < -9.5 → z > 0 전이 시 호출)
@@ -278,6 +352,7 @@ class StudySessionViewModel extends _$StudySessionViewModel {
     await _safeSync(
         'recordTrayOpen', (svc) => svc.syncSession(updated), database);
     ref.invalidateSelf();
+    _kickOffBriefingRegeneration(date);
   }
 
   Future<void> setScore(String sessionId, int score) async {
@@ -288,6 +363,7 @@ class StudySessionViewModel extends _$StudySessionViewModel {
     await _safeSync(
         'setScore', (svc) => svc.syncSession(updated), database);
     ref.invalidateSelf();
+    // selfScore는 브리핑 입력에 포함되지 않으므로 재생성 불필요
   }
 
   Future<void> deleteSession(String id) async {
@@ -295,6 +371,7 @@ class StudySessionViewModel extends _$StudySessionViewModel {
     await _safeSync(
         'deleteSession', (svc) => svc.deleteSession(id), database);
     ref.invalidateSelf();
+    _kickOffBriefingRegeneration(date);
   }
 }
 
@@ -312,6 +389,34 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
       'item': row.readTable(database.checklistItems),
       'subject': row.readTable(database.subjects),
     }).toList();
+  }
+
+  /// 체크리스트/세션/요약을 강제 리빌드한 뒤 브리핑을 재생성·저장한다.
+  void _kickOffBriefingRegeneration() {
+    unawaited(() async {
+      try {
+        final summary =
+            await ref.read(statsSummaryViewModelProvider(date).future);
+        final sessions = ref
+                .read(studySessionViewModelProvider(date))
+                .valueOrNull ??
+            const <Map<String, dynamic>>[];
+        final checklist = ref
+                .read(todayChecklistViewModelProvider(date))
+                .valueOrNull ??
+            const <Map<String, dynamic>>[];
+        final apiKey = ref.read(openRouterApiKeyProvider).valueOrNull;
+        await ref.read(briefingServiceProvider).regenerateAndSave(
+              date: date,
+              summary: summary,
+              sessions: sessions,
+              checklist: checklist,
+              apiKey: apiKey,
+            );
+      } catch (e) {
+        debugPrint('[_kickOffBriefingRegeneration/checklist] 실패: $e');
+      }
+    }());
   }
 
   Future<void> addItem(String subjectId, String text) async {
@@ -341,6 +446,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
     ), database);
 
     ref.invalidateSelf();
+    _kickOffBriefingRegeneration();
   }
 
   Future<void> toggleItem(String itemId, bool isChecked) async {
@@ -355,6 +461,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
           (svc) => svc.syncChecklistItem(item), database);
     }
     ref.invalidateSelf();
+    _kickOffBriefingRegeneration();
   }
 
   Future<void> updateItemContent(String itemId, String newContent) async {
@@ -370,6 +477,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
     await _safeSync(
         'updateChecklistItem', (svc) => svc.syncChecklistItem(updated), database);
     ref.invalidateSelf();
+    // 내용만 바뀌는 경우 브리핑 입력(완료율 등)에는 영향 없음
   }
 
   Future<void> deleteItem(String itemId) async {
@@ -377,6 +485,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
     await _safeSync(
         'deleteChecklistItem', (svc) => svc.deleteChecklistItem(itemId), database);
     ref.invalidateSelf();
+    _kickOffBriefingRegeneration();
   }
 
   Future<void> deleteAll() async {
@@ -388,6 +497,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
     await _safeSync('deleteAllChecklistItems',
         (svc) => svc.deleteChecklistItems(ids), database);
     ref.invalidateSelf();
+    _kickOffBriefingRegeneration();
   }
 
   /// AI에서 벌크 추가
@@ -424,6 +534,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
       sortOrder++;
     }
     ref.invalidateSelf();
+    _kickOffBriefingRegeneration();
   }
 
   /// 과목 그룹 내에서 순서 변경
@@ -456,6 +567,7 @@ class TodayChecklistViewModel extends _$TodayChecklistViewModel {
     }
 
     ref.invalidateSelf();
+    // 순서만 바뀌는 경우 브리핑 입력에는 영향 없음
   }
 }
 
