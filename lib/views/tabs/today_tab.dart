@@ -1489,6 +1489,7 @@ class _SessionCardState extends ConsumerState<_SessionCard> {
   @override
   Widget build(BuildContext context) {
     final color = _colorFromHex(widget.subject.colorHex);
+    final isRpi = widget.session.id.length == 10;
     final minutes = widget.session.durationSeconds ~/ 60;
     final seconds = widget.session.durationSeconds % 60;
     final timeStr = widget.session.endTime == null
@@ -1511,7 +1512,10 @@ class _SessionCardState extends ConsumerState<_SessionCard> {
           border: Border.all(
             color: _showDelete
                 ? Colors.red.shade200
-                : Colors.transparent,
+                : isRpi
+                    ? Colors.teal.shade300
+                    : Colors.transparent,
+            width: isRpi ? 1.5 : 1,
           ),
           boxShadow: [
             BoxShadow(
@@ -1523,11 +1527,47 @@ class _SessionCardState extends ConsumerState<_SessionCard> {
         ),
         child: ListTile(
           leading: CircleAvatar(
-            backgroundColor: color.withOpacity(0.2),
-            child: Icon(Icons.timer, color: color, size: 20),
+            backgroundColor: isRpi
+                ? Colors.teal.shade100
+                : color.withOpacity(0.2),
+            child: Icon(
+              isRpi ? Icons.sensors : Icons.timer,
+              color: isRpi ? Colors.teal.shade700 : color,
+              size: 20,
+            ),
           ),
-          title: Text(widget.subject.name,
-              style: const TextStyle(fontWeight: FontWeight.bold)),
+          title: Row(
+            children: [
+              Flexible(
+                child: Text(
+                  widget.subject.name,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (isRpi) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade50,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                        color: Colors.teal.shade300, width: 0.5),
+                  ),
+                  child: Text(
+                    '트레이',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.teal.shade800,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
           subtitle: Text(
             '$startStr 시작 · $timeStr'
             '${widget.session.penaltyCount > 0 ? '  · 패널티 ${widget.session.penaltyCount}회' : ''}',

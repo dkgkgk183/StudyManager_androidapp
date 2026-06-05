@@ -162,6 +162,60 @@ class SupabaseSyncService {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // ON-DEMAND PULL (특정 날짜만)
+  // 통계 탭 등에서 라즈베리파이의 tray_open_count 갱신분을 즉시 반영
+  // ═══════════════════════════════════════════════════════════
+
+  /// 특정 날짜의 study_sessions를 Supabase에서 직접 조회.
+  /// - 로컬 DB에 pullAll()이 적용된 세션이 있어도, 라즈베리파이에서
+  ///   새로 갱신된 tray_open_count를 받기 위해 사용.
+  /// - "공부일" 경계는 오전 6시(studyDayStart). 새벽 0~6시 세션은
+  ///   전날 공부일로 귀속되도록 쿼리 범위를 06:00 ~ 익일 06:00으로 잡음.
+  /// - 라즈베리파이 세션(id 길이 10자)은 KST wall clock 그대로 사용
+  ///   (timezone 변환 X). 로컬 세션은 UTC → local 변환.
+  /// - 실패 시 빈 리스트 반환.
+  Future<List<StudySession>> fetchTodaySessions(DateTime date) async {
+    final uid = await getOrCreateDeviceId();
+    if (uid.isEmpty) return [];
+
+    final startOfStudyDay = studyDayStart(date);
+    final endOfStudyDay = studyDayEnd(date);
+
+    try {
+      final rows = await _supabase
+          .from('study_sessions')
+          .select()
+          .eq('user_id', uid)
+          .gte('start_time', startOfStudyDay.toUtc().toIso8601String())
+          .lt('start_time', endOfStudyDay.toUtc().toIso8601String());
+
+      return rows.map<StudySession>((r) {
+        final idStr = r['id'] as String;
+        final isRpi = idStr.length == 10;
+        final startDt = DateTime.parse(r['start_time'] as String);
+        final rawEnd = r['end_time'] as String?;
+        final endDt = rawEnd != null ? DateTime.parse(rawEnd) : null;
+        return StudySession(
+          id: idStr,
+          subjectId: r['subject_id'] as String,
+          planId: r['plan_id'] as String?,
+          startTime: isRpi ? startDt : startDt.toLocal(),
+          endTime: endDt == null
+              ? null
+              : (isRpi ? endDt : endDt.toLocal()),
+          durationSeconds: r['duration_seconds'] as int? ?? 0,
+          selfScore: r['self_score'] as int? ?? 0,
+          penaltyCount: r['penalty_count'] as int? ?? 0,
+          trayOpenCount: r['tray_open_count'] as int? ?? 0,
+        );
+      }).toList();
+    } catch (e, st) {
+      debugPrint('[SupabaseSync] fetchTodaySessions 실패: $e\n$st');
+      return [];
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // PULL (Supabase → 로컬)
   // 앱 최초 실행 또는 재설치 후 데이터 복원에 사용
   // ═══════════════════════════════════════════════════════════

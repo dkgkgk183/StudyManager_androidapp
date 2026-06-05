@@ -204,10 +204,14 @@ class StudySessionViewModel extends _$StudySessionViewModel {
   @override
   Future<List<Map<String, dynamic>>> build(DateTime date) async {
     final results = await database.getSessionsWithSubject(date).get();
-    return results.map((row) => {
+    final list = results.map((row) => {
       'session': row.readTable(database.studySessions),
       'subject': row.readTable(database.subjects),
-    }).toList();
+    }).toList()
+      ..sort((a, b) => (a['session'] as StudySession)
+          .startTime
+          .compareTo((b['session'] as StudySession).startTime));
+    return list;
   }
 
   Future<String> startSession({
@@ -474,23 +478,50 @@ class StatsViewModel extends _$StatsViewModel {
 /// 선택된 날짜의 통계 요약 (총 공부시간, 세션 개수, penalty 합계, trayOpen 합계)
 class StatsSummary {
   final int totalSeconds;
+  final int totalSecondsLocal;
+  final int totalSecondsRpi;
   final int sessionCount;
+  final int sessionCountLocal;
+  final int sessionCountRpi;
   final int penaltyCount;
+  final int penaltyCountLocal;
+  final int penaltyCountRpi;
   final int trayOpenCount;
+  final int trayOpenCountLocal;
+  final int trayOpenCountRpi;
 
   const StatsSummary({
     required this.totalSeconds,
+    required this.totalSecondsLocal,
+    required this.totalSecondsRpi,
     required this.sessionCount,
+    required this.sessionCountLocal,
+    required this.sessionCountRpi,
     required this.penaltyCount,
+    required this.penaltyCountLocal,
+    required this.penaltyCountRpi,
     required this.trayOpenCount,
+    required this.trayOpenCountLocal,
+    required this.trayOpenCountRpi,
   });
 
   static const empty = StatsSummary(
     totalSeconds: 0,
+    totalSecondsLocal: 0,
+    totalSecondsRpi: 0,
     sessionCount: 0,
+    sessionCountLocal: 0,
+    sessionCountRpi: 0,
     penaltyCount: 0,
+    penaltyCountLocal: 0,
+    penaltyCountRpi: 0,
     trayOpenCount: 0,
+    trayOpenCountLocal: 0,
+    trayOpenCountRpi: 0,
   );
+
+  /// ID 길이가 10자면 라즈베리파이(트레이 센서)에서 온 세션으로 간주.
+  static bool isRpiSession(String id) => id.length == 10;
 
   /// 집중도 점수 계산 (0~100).
   ///
@@ -538,15 +569,64 @@ class StatsSummary {
 class StatsSummaryViewModel extends _$StatsSummaryViewModel {
   @override
   Future<StatsSummary> build(DateTime date) async {
-    final sessions = await database.getSessionsByDate(date);
-    final totalSeconds = sessions.fold<int>(0, (s, e) => s + e.durationSeconds);
-    final penaltyCount = sessions.fold<int>(0, (s, e) => s + e.penaltyCount);
-    final trayOpenCount = sessions.fold<int>(0, (s, e) => s + e.trayOpenCount);
+    // 로컬 세션 + Supabase에서 오늘자 pull (라즈베리파이 tray_open_count 반영)
+    // 동일 ID면 원격을 우선 (트레이 센서 갱신분이 더 최신).
+    final localFut = database.getSessionsByDate(date);
+    final remoteFut =
+        SupabaseSyncService(database).fetchTodaySessions(date);
+    final results = await Future.wait([localFut, remoteFut]);
+    final localSessions = results[0];
+    final remoteSessions = results[1];
+
+    final byId = <String, StudySession>{};
+    for (final s in localSessions) {
+      byId[s.id] = s;
+    }
+    for (final s in remoteSessions) {
+      byId[s.id] = s;
+    }
+    final sessions = byId.values.toList();
+
+    int trayLocal = 0;
+    int trayRpi = 0;
+    int sessionLocal = 0;
+    int sessionRpi = 0;
+    int penaltyLocal = 0;
+    int penaltyRpi = 0;
+    for (final s in sessions) {
+      if (StatsSummary.isRpiSession(s.id)) {
+        trayRpi += s.trayOpenCount;
+        sessionRpi++;
+        penaltyRpi += s.penaltyCount;
+      } else {
+        trayLocal += s.trayOpenCount;
+        sessionLocal++;
+        penaltyLocal += s.penaltyCount;
+      }
+    }
+    int secondsLocal = 0;
+    int secondsRpi = 0;
+    for (final s in sessions) {
+      if (StatsSummary.isRpiSession(s.id)) {
+        secondsRpi += s.durationSeconds;
+      } else {
+        secondsLocal += s.durationSeconds;
+      }
+    }
+    final totalSeconds = secondsLocal + secondsRpi;
     return StatsSummary(
       totalSeconds: totalSeconds,
+      totalSecondsLocal: secondsLocal,
+      totalSecondsRpi: secondsRpi,
       sessionCount: sessions.length,
-      penaltyCount: penaltyCount,
-      trayOpenCount: trayOpenCount,
+      sessionCountLocal: sessionLocal,
+      sessionCountRpi: sessionRpi,
+      penaltyCount: penaltyLocal + penaltyRpi,
+      penaltyCountLocal: penaltyLocal,
+      penaltyCountRpi: penaltyRpi,
+      trayOpenCount: trayLocal + trayRpi,
+      trayOpenCountLocal: trayLocal,
+      trayOpenCountRpi: trayRpi,
     );
   }
 }

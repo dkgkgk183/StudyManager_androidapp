@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../database/database.dart';
 import '../../viewmodels/ui_state.dart';
 import '../../viewmodels/study_view_model.dart';
+import '../../viewmodels/focus_briefing_view_model.dart';
 import 'today_tab.dart' show checklistDatesInMonthProvider;
 
 class StatsTab extends ConsumerStatefulWidget {
@@ -301,19 +302,6 @@ class _DailySummary extends ConsumerWidget {
   final DateTime date;
   const _DailySummary({required this.date});
 
-  String _formatDuration(int totalSeconds) {
-    final h = totalSeconds ~/ 3600;
-    final m = (totalSeconds % 3600) ~/ 60;
-    final s = totalSeconds % 60;
-    if (h > 0) {
-      return '$h시간 $m분 $s초';
-    }
-    if (m > 0) {
-      return '$m분 $s초';
-    }
-    return '$s초';
-  }
-
   List<_SubjectSegment> _buildSegments(
     Set<Subject> checklistSubjects,
     List<Map<String, dynamic>> sessions,
@@ -356,11 +344,12 @@ class _DailySummary extends ConsumerWidget {
     );
     final gaugeTotal = segments.fold<int>(0, (s, e) => s + e.seconds);
 
-    // 공부 종료 시 무조건 1회는 들어올려야 하므로, 집중도 하락에 의한
-    // 들고나림 횟수만 보여주기 위해 마지막 1회를 차감.
-    final phoneLiftCount = summary.trayOpenCount > 0
-        ? summary.trayOpenCount - 1
-        : 0;
+    // 로컬 트레이의 마지막 1회는 공부 종료 시 무조건 발생하는 거니까
+    // 집중도 계산에서만 차감. 라즈베리파이 트레이는 차감 없음.
+    final phoneLiftCount = (summary.trayOpenCountLocal > 0
+            ? summary.trayOpenCountLocal - 1
+            : 0) +
+        summary.trayOpenCountRpi;
 
     // 집중도 점수 (3타일 + 공부 시간 기반)
     final hasStudy = summary.sessionCount > 0;
@@ -439,6 +428,14 @@ class _DailySummary extends ConsumerWidget {
             }).toList(),
           ),
         ],
+        // ── 출처 비율 (게이지 옆 미니 인디케이터) ───
+        if (summary.sessionCount > 0) ...[
+          const SizedBox(height: 14),
+          _SourceBreakdown(
+            localSeconds: summary.totalSecondsLocal,
+            rpiSeconds: summary.totalSecondsRpi,
+          ),
+        ],
         const SizedBox(height: 16),
         // ── 집중도 점수 ──────────────────────────────
         if (summary.totalSeconds < 1800)
@@ -446,39 +443,51 @@ class _DailySummary extends ConsumerWidget {
             minutes: (summary.totalSeconds / 60).floor(),
           )
         else
-          _FocusScoreCard(score: focusScore, hasData: hasStudy),
+          _FocusScoreCard(
+            score: focusScore,
+            hasData: hasStudy,
+            date: date,
+          ),
         const SizedBox(height: 12),
         // ── 세션 개수 / 폰 들어올림 횟수 ──────────────
+        const _SourceLegend(),
+        const SizedBox(height: 6),
         IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: _SummaryTile(
-                  icon: Icons.timer_outlined,
-                  iconColor: Colors.blue,
-                  label: '공부 세션',
-                  value: '${summary.sessionCount}개',
-                ),
+            Expanded(
+              child: _SummaryTile(
+                icon: Icons.timer_outlined,
+                iconColor: Colors.blue,
+                label: '공부 세션',
+                localValue: summary.sessionCountLocal,
+                rpiValue: summary.sessionCountRpi,
+                suffix: '개',
               ),
+            ),
               const SizedBox(width: 12),
-              Expanded(
-                child: _SummaryTile(
-                  icon: Icons.smartphone,
-                  iconColor: Colors.orange,
-                  label: '폰 들어올림\n트레이 열림',
-                  value: '$phoneLiftCount회',
-                ),
+            Expanded(
+              child: _SummaryTile(
+                icon: Icons.smartphone,
+                iconColor: Colors.orange,
+                label: '폰 들어올림\n트레이 열림',
+                localValue: summary.trayOpenCountLocal,
+                rpiValue: summary.trayOpenCountRpi,
+                suffix: '회',
               ),
+            ),
               const SizedBox(width: 12),
-              Expanded(
-                child: _SummaryTile(
-                  icon: Icons.block,
-                  iconColor: Colors.red,
-                  label: '패널티',
-                  value: '${summary.penaltyCount}회',
-                ),
+            Expanded(
+              child: _SummaryTile(
+                icon: Icons.block,
+                iconColor: Colors.red,
+                label: '패널티',
+                localValue: summary.penaltyCountLocal,
+                rpiValue: summary.penaltyCountRpi,
+                suffix: '회',
               ),
+            ),
             ],
           ),
         ),
@@ -637,11 +646,16 @@ class _FocusScoreInsufficientNotice extends StatelessWidget {
   }
 }
 
-class _FocusScoreCard extends StatelessWidget {
+class _FocusScoreCard extends ConsumerWidget {
   final int score;
   final bool hasData;
+  final DateTime date;
 
-  const _FocusScoreCard({required this.score, required this.hasData});
+  const _FocusScoreCard({
+    required this.score,
+    required this.hasData,
+    required this.date,
+  });
 
   ({Color bg, Color fg, IconData icon, String status}) _resolve() {
     if (!hasData) {
@@ -693,7 +707,7 @@ class _FocusScoreCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final r = _resolve();
     return Container(
       width: double.infinity,
@@ -702,42 +716,152 @@ class _FocusScoreCard extends StatelessWidget {
         color: r.bg,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Icon(r.icon, color: r.fg, size: 28),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+          Row(
             children: [
-              Text(
-                '집중도',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: r.fg.withValues(alpha: 0.8),
-                ),
+              Icon(r.icon, color: r.fg, size: 28),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '집중도',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: r.fg.withValues(alpha: 0.8),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    hasData ? '$score점' : '—',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: r.fg,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
+              const Spacer(),
               Text(
-                hasData ? '$score점' : '—',
+                r.status,
                 style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
                   color: r.fg,
                 ),
               ),
             ],
           ),
-          const Spacer(),
+          if (hasData) ...[
+            const SizedBox(height: 12),
+            Container(
+              height: 1,
+              color: r.fg.withValues(alpha: 0.18),
+            ),
+            const SizedBox(height: 10),
+            _AiBriefingSection(date: date, accentColor: r.fg),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AiBriefingSection extends ConsumerWidget {
+  final DateTime date;
+  final Color accentColor;
+
+  const _AiBriefingSection({required this.date, required this.accentColor});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final briefingAsync = ref.watch(focusBriefingProvider(date));
+    return briefingAsync.when(
+      data: (text) {
+        final lines = text
+            .split('\n')
+            .map((l) => l.trim())
+            .where((l) => l.isNotEmpty)
+            .toList();
+        final baseStyle = TextStyle(
+          fontSize: 12.5,
+          color: accentColor.withValues(alpha: 0.85),
+          height: 1.45,
+        );
+        final boldStyle = TextStyle(
+          fontSize: 12.5,
+          color: accentColor,
+          fontWeight: FontWeight.w700,
+          height: 1.45,
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: lines
+              .map(
+                (line) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, right: 8),
+                        child: Container(
+                          width: 5,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: accentColor.withValues(alpha: 0.75),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text.rich(
+                          TextSpan(
+                            children: _parseBoldSpans(
+                              line,
+                              baseStyle,
+                              boldStyle,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
+        );
+      },
+      loading: () => Row(
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              valueColor: AlwaysStoppedAnimation(accentColor),
+            ),
+          ),
+          const SizedBox(width: 8),
           Text(
-            r.status,
+            '브리핑을 생성하는 중...',
             style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: r.fg,
+              fontSize: 12,
+              color: accentColor.withValues(alpha: 0.6),
             ),
           ),
         ],
+      ),
+      error: (e, _) => Text(
+        '브리핑을 불러올 수 없어요.',
+        style: TextStyle(
+          fontSize: 12,
+          color: accentColor.withValues(alpha: 0.6),
+        ),
       ),
     );
   }
@@ -747,19 +871,32 @@ class _SummaryTile extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
   final String label;
-  final String value;
+  final int localValue;
+  final int rpiValue;
+  final String suffix;
 
   const _SummaryTile({
     required this.icon,
     required this.iconColor,
     required this.label,
-    required this.value,
+    required this.localValue,
+    required this.rpiValue,
+    required this.suffix,
   });
 
   @override
   Widget build(BuildContext context) {
+    final rpiStyle = TextStyle(
+      fontSize: 20,
+      fontWeight: FontWeight.bold,
+      color: Colors.teal.shade700,
+    );
+    final localStyle = const TextStyle(
+      fontSize: 20,
+      fontWeight: FontWeight.bold,
+    );
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
@@ -781,16 +918,222 @@ class _SummaryTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            value,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: '$localValue$suffix', style: localStyle),
+                  TextSpan(
+                    text: ' / ',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                  TextSpan(text: '$rpiValue$suffix', style: rpiStyle),
+                ],
+              ),
+              textAlign: TextAlign.center,
             ),
           ),
         ],
       ),
     );
   }
+}
+
+/// 게이지 아래에 표시되는 시간 출처(로컬/트레이) 미니 인디케이터.
+class _SourceBreakdown extends StatelessWidget {
+  final int localSeconds;
+  final int rpiSeconds;
+
+  const _SourceBreakdown({
+    required this.localSeconds,
+    required this.rpiSeconds,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final total = localSeconds + rpiSeconds;
+    final hasRpi = rpiSeconds > 0;
+    final hasLocal = localSeconds > 0;
+    final rpiRatio = total == 0 ? 0.0 : rpiSeconds / total;
+    final rpiPercent = (rpiRatio * 100).round();
+
+    return Column(
+      children: [
+        // 시간 분배 텍스트
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 4,
+          runSpacing: 2,
+          children: [
+            _durationChip(
+              label: '로컬',
+              seconds: localSeconds,
+              color: Colors.grey.shade700,
+              emphasized: !hasRpi && hasLocal,
+            ),
+            if (hasRpi) ...[
+              const Text('·',
+                  style: TextStyle(fontSize: 11, color: Colors.grey)),
+              _durationChip(
+                label: '트레이',
+                seconds: rpiSeconds,
+                color: Colors.teal.shade700,
+                emphasized: true,
+              ),
+            ],
+            if (hasRpi) ...[
+              const SizedBox(width: 4),
+              Text(
+                '($rpiPercent%)',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.teal.shade700,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 6),
+        // 미니 비율 막대
+        if (total > 0)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: SizedBox(
+                height: 6,
+                child: Row(
+                  children: [
+                    if (hasLocal)
+                      Expanded(
+                        flex: localSeconds,
+                        child: Container(color: Colors.grey.shade500),
+                      ),
+                    if (hasRpi)
+                      Expanded(
+                        flex: rpiSeconds,
+                        child: Container(color: Colors.teal),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _durationChip({
+    required String label,
+    required int seconds,
+    required Color color,
+    required bool emphasized,
+  }) {
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(
+          fontSize: emphasized ? 12 : 11,
+          color: color,
+          fontWeight: emphasized ? FontWeight.w600 : FontWeight.w500,
+        ),
+        children: [
+          TextSpan(text: label),
+          const TextSpan(text: ' '),
+          TextSpan(
+            text: _formatDuration(seconds),
+            style: TextStyle(
+              fontSize: emphasized ? 12 : 11,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 3-타일의 "로컬/RPi" 표기 색상 안내.
+class _SourceLegend extends StatelessWidget {
+  const _SourceLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, right: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          _legendDot(Colors.grey.shade700, '로컬'),
+          const SizedBox(width: 12),
+          _legendDot(Colors.teal.shade700, '트레이 (RPi)'),
+        ],
+      ),
+    );
+  }
+
+  Widget _legendDot(Color color, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: Colors.grey.shade600,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 초 단위 시간을 사람이 읽기 좋은 문자열로 포맷한다.
+String _formatDuration(int totalSeconds) {
+  final h = totalSeconds ~/ 3600;
+  final m = (totalSeconds % 3600) ~/ 60;
+  final s = totalSeconds % 60;
+  if (h > 0) {
+    return '$h시간 $m분 $s초';
+  }
+  if (m > 0) {
+    return '$m분 $s초';
+  }
+  return '$s초';
+}
+
+/// `**텍스트**` 패턴을 굵은 스타일의 TextSpan으로 분리한다.
+List<TextSpan> _parseBoldSpans(
+  String text,
+  TextStyle baseStyle,
+  TextStyle boldStyle,
+) {
+  final spans = <TextSpan>[];
+  final pattern = RegExp(r'\*\*(.+?)\*\*');
+  int lastEnd = 0;
+  for (final m in pattern.allMatches(text)) {
+    if (m.start > lastEnd) {
+      spans.add(TextSpan(text: text.substring(lastEnd, m.start), style: baseStyle));
+    }
+    spans.add(TextSpan(text: m.group(1), style: boldStyle));
+    lastEnd = m.end;
+  }
+  if (lastEnd < text.length) {
+    spans.add(TextSpan(text: text.substring(lastEnd), style: baseStyle));
+  }
+  return spans;
 }
