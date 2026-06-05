@@ -1639,60 +1639,28 @@ class _ChecklistItemTileState extends ConsumerState<_ChecklistItemTile> {
     final itemId = widget.item.id;
     final date = widget.date;
     final initialContent = widget.item.content;
-    debugPrint('[_showEditDialog] 1. 시작, itemId=$itemId, mounted=$mounted');
 
-    String? result;
-    try {
-      debugPrint('[_showEditDialog] 2. showDialog 호출 직전');
-      result = await showDialog<String>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) {
-          debugPrint('[_showEditDialog] 3. dialog builder 실행');
-          return _EditChecklistDialog(
-            initialContent: initialContent,
-            onSaved: (text) {
-              debugPrint('[_showEditDialog] 4b. 저장, text="$text"');
-              Navigator.pop(dialogContext, text);
-            },
-            onCancel: () {
-              debugPrint('[_showEditDialog] 4a. 취소');
-              Navigator.pop(dialogContext);
-            },
-          );
-        },
-      );
-      debugPrint('[_showEditDialog] 5. showDialog 반환, result=$result');
-    } catch (e, st) {
-      debugPrint('[_showEditDialog] dialog error: $e\n$st');
-    }
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => _EditChecklistDialog(
+        initialContent: initialContent,
+        onSaved: (text) => Navigator.pop(dialogContext, text),
+        onCancel: () => Navigator.pop(dialogContext),
+      ),
+    );
 
-    if (result == null || result.isEmpty) {
-      debugPrint('[_showEditDialog] 7. result 비어있음 → 종료');
-      return;
-    }
-    final newContent = result;
-    debugPrint('[_showEditDialog] 8. updateItemContent 예약, newContent="$newContent", mounted=$mounted');
+    if (result == null || result.isEmpty) return;
 
     // 다이얼로그 dismiss + 위젯 트리 안정화 이후에 업데이트 실행.
-    // 같은 프레임에서 ref.invalidateSelf() → ReorderableListView 아이템 unmount가
-    // 일어나면 InheritedWidget dependents 정리가 따라잡지 못해
-    // '_dependents.isEmpty' assertion이 터지는 race condition 회피.
+    // 같은 프레임에서 ref.invalidateSelf()가 호출되면
+    // ReorderableListView 아이템 unmount와 InheritedWidget dependents 정리가
+    // race가 되어 '_dependents.isEmpty' assertion이 터질 수 있음.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      debugPrint('[_showEditDialog] 9. postFrame 콜백 시작, mounted=$mounted');
-      if (!mounted) {
-        debugPrint('[_showEditDialog] 10. unmount됨 → 종료');
-        return;
-      }
-      try {
-        debugPrint('[_showEditDialog] 11. updateItemContent 호출 직전');
-        await ref
-            .read(todayChecklistViewModelProvider(date).notifier)
-            .updateItemContent(itemId, newContent);
-        debugPrint('[_showEditDialog] 12. updateItemContent 완료');
-      } catch (e, st) {
-        debugPrint('[_showEditDialog] update error: $e\n$st');
-      }
+      if (!mounted) return;
+      await ref
+          .read(todayChecklistViewModelProvider(date).notifier)
+          .updateItemContent(itemId, result);
     });
   }
 
