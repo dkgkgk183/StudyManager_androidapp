@@ -924,6 +924,10 @@ class _TodayTabState extends ConsumerState<TodayTab>
                     if (items.isEmpty && _studyMode == StudyMode.idle) {
                       return const SizedBox.shrink();
                     }
+                    // 오늘이 아닌 날짜는 어차피 오늘 날짜로 기록되므로 시작 불가
+                    if (selectedDate != today) {
+                      return const SizedBox.shrink();
+                    }
                     final hasRecords =
                         sessionsAsync.valueOrNull?.isNotEmpty == true;
                     if (_studyMode != StudyMode.idle) {
