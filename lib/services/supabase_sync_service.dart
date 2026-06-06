@@ -269,6 +269,44 @@ class SupabaseSyncService {
     }
   }
 
+  /// 특정 날짜의 checklist_items를 Supabase에서 직접 조회하여 로컬 DB에 upsert.
+  ///
+  /// - 앱 시작 시 다른 기기(예: 다른 폰)에서 추가/수정한 체크리스트를 즉시 반영.
+  /// - `date` 컬럼이 yyyy-MM-dd 문자열이므로 tz 변환/스터디일 경계 처리 불필요.
+  /// - 실패 시 silent (로그만). 빈 결과여도 정상.
+  Future<int> fetchChecklistForDate(DateTime date) async {
+    final uid = await getOrCreateDeviceId();
+    if (uid.isEmpty) return 0;
+
+    final dateStr = formatDateStr(date);
+
+    try {
+      final rows = await _supabase
+          .from('checklist_items')
+          .select()
+          .eq('user_id', uid)
+          .eq('date', dateStr);
+
+      var count = 0;
+      for (final row in rows) {
+        await _db.insertChecklistItem(ChecklistItemsCompanion.insert(
+          id: row['id'] as String,
+          subjectId: row['subject_id'] as String,
+          date: row['date'] as String,
+          content: row['text'] as String,
+          isChecked: drift.Value(row['is_checked'] as bool? ?? false),
+          sortOrder: drift.Value(row['sort_order'] as int? ?? 0),
+          createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
+        ));
+        count++;
+      }
+      return count;
+    } catch (e, st) {
+      debugPrint('[SupabaseSync] fetchChecklistForDate 실패: $e\n$st');
+      return 0;
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════
   // PULL (Supabase → 로컬)
   // 앱 최초 실행 또는 재설치 후 데이터 복원에 사용

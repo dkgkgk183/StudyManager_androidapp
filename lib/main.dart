@@ -43,6 +43,8 @@ class MyApp extends ConsumerWidget {
     // 앱 시작 시 오늘자 브리핑 캐시가 stale이면 백그라운드에서 즉시 재생성.
     // (비정상 종료 후 재시작 대비. 통계 탭 진입 시 캐시 hit → 즉시 표시.)
     ref.watch(startupBriefingCheckProvider);
+    // 앱 시작 시 오늘자 체크리스트를 Supabase에서 pull (다른 기기 변경분 반영).
+    ref.watch(startupChecklistPullProvider);
 
     return MaterialApp(
       title: '탁상 AI 스터디 매니저',
