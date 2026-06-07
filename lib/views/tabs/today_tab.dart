@@ -7,6 +7,7 @@ import '../../viewmodels/study_view_model.dart';
 import '../../database/database.dart';
 import '../../main.dart' show database;
 import 'package:drift/drift.dart' show Value;
+import '../../services/call_state_service.dart';
 import '../../services/study_service.dart';
 
 enum StudyMode { idle, waiting, active, paused }
@@ -54,6 +55,9 @@ class _TodayTabState extends ConsumerState<TodayTab>
   // ── 센서 ───────────────────────────────────────────────
   Timer? _sensorPollTimer;
 
+  // ── 전화 수신 감지 ─────────────────────────────────────
+  StreamSubscription<String>? _callStateSub;
+
   // ── 라이프사이클 구분 (잠금 vs 앱 전환) ─────────────────
   // inactive → paused가 수백ms 내 = 잠금화면(화면 끄기)
   // inactive → hidden → paused = 홈버튼/뒤로가기(앱 전환)
@@ -76,11 +80,26 @@ class _TodayTabState extends ConsumerState<TodayTab>
       ref.read(selectedDateProvider.notifier).setDate(effectiveDate);
     });
     _closeOrphanedSessions();
+    _subscribeCallState();
+  }
+
+  /// 전화 수신 감지 구독.
+  /// - `ringing`: 공부 중(active/paused)이면 즉시 _endStudy()로 종료·저장.
+  ///   _endStudy()는 _pendingTrayOpen을 폐기하고 패널티도 안 더하므로
+  ///   전화 수신은 tray_open/penalty 카운트에 반영되지 않는다.
+  void _subscribeCallState() {
+    _callStateSub = CallStateService.onCallStateChanged.listen((state) {
+      if (state != 'ringing') return;
+      if (_studyMode != StudyMode.active && _studyMode != StudyMode.paused) return;
+      debugPrint('[CallState] ringing 수신 — 공부 즉시 종료 ($_studyMode)');
+      _endStudy();
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _callStateSub?.cancel();
     _studyTimer?.cancel();
     _pauseTimer?.cancel();
     _sensorPollTimer?.cancel();
