@@ -9,7 +9,6 @@
 ### AI 플래너 탭
 - **AI 채팅 인터페이스**: 자연어로 오늘의 할 일을 입력하면 AI가 과목별 체크리스트로 정리
     - OpenRouter API 스트리밍 응답 지원 (SSE)
-    - 로컬 Hermes Agent 서버도 백엔드로 활용 가능
 - **음성 입력**: 한국어 음성 인식으로 손쉽게 할 일 입력 (speech_to_text)
 - **체크리스트 추출**: AI 응답에서 과목별 항목을 파싱하여 "체크리스트에 추가" 버튼 제공
 - **세션 관리**: 날짜별 대화 히스토리 저장/조회/삭제
@@ -42,7 +41,6 @@
 - **기기 ID 관리**: 3자리 기기 번호 (000-999) 등록, Supabase 중복 확인
 - **AI API 설정**
     - OpenRouter API 키 및 모델명 설정 (기본: google/gemini-2.5-flash-preview)
-    - Hermes Agent 서버 URL 설정 및 연결 테스트
 - **Supabase 클라우드 동기화**: 로컬 ↔ 클라우드 수동 푸시/풀
 
 ---
@@ -67,7 +65,7 @@
 | 앱 프레임워크 | Flutter (Dart) |
 | 상태 관리 | Riverpod |
 | 로컬 DB | Drift (SQLite) |
-| AI | OpenRouter API, Hermes Agent 서버 |
+| AI | OpenRouter API |
 | 음성 인식 | speech_to_text |
 | 키 저장 | SharedPreferences |
 | 클라우드 | Supabase (데이터 동기화, 실시간) |
@@ -110,4 +108,3 @@ lib/
 
 1. [OpenRouter](https://openrouter.ai) 에서 API 키 발급
 2. 앱 실행 → 설정 탭 → OpenRouter API 설정에서 키 입력
-3. (선택) 로컬 Hermes Agent 서버 URL 설정
